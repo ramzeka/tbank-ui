@@ -1,0 +1,273 @@
+& {
+    $ErrorActionPreference = 'Stop'
+    Add-Type -AssemblyName System.Net.Http
+
+    $port = 8765
+    $authority = "127.0.0.1:$port"
+    $origin = "http://$authority"
+    $runId = [Guid]::NewGuid().ToString('N')
+    $crlf = [string][char]13 + [char]10
+    $maxHeader = 16384
+    $maxBody = 262144
+    $empty = [byte[]]@()
+    $securityHeaders = @(
+        'Connection: close',
+        'Cache-Control: no-store',
+        'X-Content-Type-Options: nosniff',
+        'Referrer-Policy: no-referrer',
+        "Content-Security-Policy: default-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    ) -join $crlf
+
+    $routes = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+    function Add-Asset($route, $file, $type) {
+        $bytes = [IO.File]::ReadAllBytes((Join-Path $env:TBANK_UI_DIST $file))
+        $routes.Add($route, @{ Body = $bytes; Type = $type })
+    }
+
+    function Send-Response($stream, $status, $type, [byte[]]$body) {
+        if ($type.StartsWith('text/')) { $type += '; charset=utf-8' }
+        $headers = @(
+            "HTTP/1.1 $status",
+            "Content-Type: $type",
+            ('Content-Length: ' + $body.Length.ToString([Globalization.CultureInfo]::InvariantCulture)),
+            $securityHeaders, '', ''
+        ) -join $crlf
+        $encoded = [Text.Encoding]::ASCII.GetBytes($headers)
+        $stream.Write($encoded, 0, $encoded.Length)
+        $stream.Write($body, 0, $body.Length)
+    }
+
+    function Send-Json($stream, $status, $payload) {
+        $body = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $payload -Compress))
+        Send-Response $stream $status 'application/json' $body
+    }
+
+    function Get-Header($lines, $name) {
+        $prefix = "$($name):"
+        $matching = @($lines | Where-Object { $_.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+        if ($matching.Count -eq 1) { return $matching[0].Substring($prefix.Length).Trim() }
+        return $null
+    }
+
+    function Read-RequestHeader($connection, $headers, $bodyOffset) {
+        $stream = $connection.Stream
+        $lines = $headers -split $crlf
+        if ((Get-Header $lines 'Host') -cne $authority -or
+            $lines[0] -cnotmatch '^([^ ]+) (/[^ ?#]*)(\?[^ #]*)? HTTP/1\.[01]$') {
+            Send-Response $stream '400 Bad Request' 'text/plain' $empty
+            return $true
+        }
+        $method = $Matches[1]
+        $path = $Matches[2]
+        if ($path.StartsWith('/api/relay/', [StringComparison]::Ordinal)) {
+            $query = $Matches[3]
+            if ($method -cne 'GET') {
+                Send-Json $stream '405 Method Not Allowed' @{ message = 'Unsupported API method.' }
+                return $true
+            }
+            $requestOrigin = Get-Header $lines 'Origin'
+            $fetchSite = Get-Header $lines 'Sec-Fetch-Site'
+            if (((($lines -match '^Origin:') -or $method -cne 'GET') -and $requestOrigin -cne $origin) -or
+                ($fetchSite -and $fetchSite -cne 'same-origin') -or (Get-Header $lines 'X-TBank-Run') -cne $runId) {
+                Send-Json $stream '403 Forbidden' @{ error = 'invalid_origin' }
+                return $true
+            }
+            $length = Get-Header $lines 'Content-Length'
+            if ($lines -match '^Transfer-Encoding[ \t]*:' -or
+                (($lines -match '^Content-Length:') -and ($length -notmatch '^(0|[1-9][0-9]{0,5})$' -or [int]$length -gt $maxBody)) -or
+                ([int]$length -gt 0 -and ($method -ceq 'GET' -or (Get-Header $lines 'Content-Type') -ne 'application/json'))) {
+                Send-Json $stream '400 Bad Request' @{ error = 'invalid_request' }
+                return $true
+            }
+            $connection.Headers = $lines
+            $connection.Method = $method
+            $connection.TargetPath = $path.Substring('/api/relay'.Length) + $query
+            $connection.BodyOffset = $bodyOffset
+            $connection.BodyLength = [int]$length
+            return $false
+        }
+
+        if ($method -cne 'GET') {
+            Send-Response $stream '405 Method Not Allowed' 'text/plain' $empty
+        } elseif ($routes.ContainsKey($path)) {
+            $asset = $routes[$path]
+            Send-Response $stream '200 OK' $asset.Type $asset.Body
+        } else {
+            Send-Response $stream '404 Not Found' 'text/plain' $empty
+        }
+        return $true
+    }
+
+    function Start-Upstream($connection) {
+        $stream = $connection.Stream
+        $proxyOrigin = Get-Header $connection.Headers 'X-TBank-Proxy-Origin'
+        $base = $null
+        $target = $null
+        $authorization = Get-Header $connection.Headers 'Authorization'
+        $account = Get-Header $connection.Headers 'bankAccountId'
+        $key = Get-Header $connection.Headers 'Idempotency-Key'
+        $uuidPattern = '^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$'
+        if (!$proxyOrigin -or -not [Uri]::TryCreate($proxyOrigin, [UriKind]::Absolute, [ref]$base) -or
+            $base.UserInfo -or $base.GetLeftPart([UriPartial]::Authority) -cne $proxyOrigin -or
+            -not [Uri]::TryCreate(($proxyOrigin + $connection.TargetPath), [UriKind]::Absolute, [ref]$target) -or
+            $target.GetLeftPart([UriPartial]::Authority) -cne $proxyOrigin -or
+            ($target.Scheme -ne 'https' -and ($target.Scheme -ne 'http' -or $target.Host -cne '127.0.0.1')) -or
+            $target.UserInfo -or $target.Fragment -or $target.GetLeftPart([UriPartial]::Authority) -ceq $origin -or
+            $target.Host -match '(^|\.)(tbank\.ru|tinkoff\.ru|t-bank-app\.ru)\.?$' -or
+            $authorization -cnotmatch '^Bearer [A-Za-z0-9._~+/-]+=*$' -or
+            ($account -and $account -notmatch $uuidPattern) -or ($key -and $key -notmatch $uuidPattern)) {
+            Send-Json $stream '400 Bad Request' @{ message = 'Invalid API URL, method or headers.' }
+            return $true
+        }
+        if (@($connections | Where-Object { $_.Exchange }).Count -ge 8) {
+            Send-Json $stream '503 Service Unavailable' @{ message = 'Local server is busy.' }
+            return $true
+        }
+
+        $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::new($connection.Method), $target)
+        $request.Headers.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::Parse($authorization)
+        if ($account) { [void]$request.Headers.TryAddWithoutValidation('bankAccountId', $account) }
+        if ($key) { [void]$request.Headers.TryAddWithoutValidation('Idempotency-Key', $key) }
+        if ($connection.BodyLength -gt 0) {
+            $request.Content = [Net.Http.ByteArrayContent]::new($connection.Data, $connection.BodyOffset, $connection.BodyLength)
+            $request.Content.Headers.ContentType = [Net.Http.Headers.MediaTypeHeaderValue]::new('application/json')
+        }
+        $connection.UpstreamRequest = $request
+        $connection.Cancellation = [Threading.CancellationTokenSource]::new()
+        $connection.Exchange = $http.SendAsync($request, $connection.Cancellation.Token)
+        $connection.Data = $null
+        $connection.Headers = $null
+        return $false
+    }
+
+    function Complete-Upstream($connection) {
+        if ($connection.Client.Client.Poll(0, [Net.Sockets.SelectMode]::SelectRead) -and $connection.Client.Available -eq 0) {
+            return $true
+        }
+        if (-not $connection.Exchange.IsCompleted) { return $false }
+        $stream = $connection.Stream
+        if ($connection.Exchange.IsFaulted -or $connection.Exchange.IsCanceled) {
+            Send-Json $stream '502 Bad Gateway' @{ message = 'Local server could not reach the API proxy.' }
+            return $true
+        }
+
+        $response = $connection.Exchange.Result
+        try {
+            $status = [int]$response.StatusCode
+            $reason = $response.StatusCode.ToString()
+            $body = $empty
+            $type = 'text/plain'
+            if ($response.Content -and $status -notin @(204, 205, 304)) {
+                $body = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+                $media = $response.Content.Headers.ContentType
+                if ($media -and $media.MediaType -match '^application/(?:[A-Za-z0-9._+-]+\+)?json$') {
+                    $type = 'application/json'
+                }
+            }
+            Send-Response $stream "$status $reason" $type $body
+        } finally {
+            $response.Dispose()
+        }
+        return $true
+    }
+
+    function Read-Connection($connection) {
+        if ($connection.Exchange) { return Complete-Upstream $connection }
+        if ($connection.Timer.ElapsedMilliseconds -ge 2000) { return $true }
+        if (-not $connection.Client.Client.Poll(0, [Net.Sockets.SelectMode]::SelectRead)) { return $false }
+
+        $data = $connection.Data
+        $used = $connection.Used
+        $count = $connection.Stream.Read($data, $used, $data.Length - $used)
+        if ($count -eq 0) { return $true }
+        $end = $used + $count
+        $connection.Used = $end
+
+        if (!$connection.BodyOffset) {
+            for ($index = [Math]::Max(0, $used - 3); $index -lt [Math]::Min($end - 3, $maxHeader - 3); $index++) {
+                if ($data[$index] -eq 13 -and $data[$index + 1] -eq 10 -and
+                    $data[$index + 2] -eq 13 -and $data[$index + 3] -eq 10) {
+                    $headers = [Text.Encoding]::ASCII.GetString($data, 0, $index)
+                    if (Read-RequestHeader $connection $headers ($index + 4)) { return $true }
+                    break
+                }
+            }
+            if (!$connection.BodyOffset) { return $end -ge $maxHeader }
+        }
+
+        if ($end -ge ($connection.BodyOffset + $connection.BodyLength)) {
+            return Start-Upstream $connection
+        }
+        return $false
+    }
+
+    function Close-Connection($connection) {
+        if ($connection.Cancellation) {
+            $connection.Cancellation.Cancel()
+            $connection.Cancellation.Dispose()
+            $connection.UpstreamRequest.Dispose()
+        }
+        $connection.Client.Dispose()
+    }
+
+    $routes.Add('/health', @{ Body = [Text.Encoding]::ASCII.GetBytes($runId); Type = 'text/plain' })
+    Add-Asset '/' 'index.html' 'text/html'
+    Add-Asset '/app.js' 'app.js' 'text/javascript'
+    Add-Asset '/beneficiaries.js' 'beneficiaries.js' 'text/javascript'
+    Add-Asset '/beneficiary-schema.js' 'beneficiary-schema.js' 'text/javascript'
+    Add-Asset '/inter.woff2' 'inter.woff2' 'font/woff2'
+    Add-Asset '/tbank-mark.png' 'tbank-mark.png' 'image/png'
+    Add-Asset '/smlt-mark.svg' 'smlt-mark.svg' 'image/svg+xml'
+    Add-Asset '/styles.css' 'styles.css' 'text/css'
+
+    $handler = [Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.UseCookies = $false
+    $handler.AutomaticDecompression = [Net.DecompressionMethods]::GZip -bor [Net.DecompressionMethods]::Deflate
+    $http = [Net.Http.HttpClient]::new($handler)
+    $http.Timeout = [TimeSpan]::FromSeconds(20)
+    $http.MaxResponseContentBufferSize = 8388608
+
+    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $port)
+    $connections = [Collections.Generic.List[hashtable]]::new()
+    try {
+        $listener.ExclusiveAddressUse = $true
+        $listener.Start()
+        Write-Host "Open in browser: $origin/"
+        Write-Host 'Close this console to stop the local server.'
+        try { Start-Process -FilePath "$origin/" } catch { Write-Warning "Open manually: $origin/" }
+
+        while ($true) {
+            while ($connections.Count -lt 16 -and $listener.Pending()) {
+                $client = $listener.AcceptTcpClient()
+                $stream = $client.GetStream()
+                $stream.ReadTimeout = 1000
+                $stream.WriteTimeout = 1000
+                $connections.Add(@{
+                    Client = $client; Stream = $stream; Data = [byte[]]::new($maxHeader + $maxBody)
+                    Used = 0; Timer = [Diagnostics.Stopwatch]::StartNew()
+                })
+            }
+            for ($index = $connections.Count - 1; $index -ge 0; $index--) {
+                $connection = $connections[$index]
+                try {
+                    if (-not (Read-Connection $connection)) { continue }
+                } catch [IO.IOException], [Net.Sockets.SocketException] {
+                }
+                Close-Connection $connection
+                $connections.RemoveAt($index)
+            }
+            Start-Sleep -Milliseconds 20
+        }
+    } catch [Net.Sockets.SocketException] {
+        if ($_.Exception.SocketErrorCode -eq [Net.Sockets.SocketError]::AddressAlreadyInUse) {
+            throw "Port $port is in use. Close the previous launch window and try again."
+        }
+        throw
+    } finally {
+        foreach ($connection in $connections) { Close-Connection $connection }
+        $listener.Stop()
+        $http.Dispose()
+    }
+}
+

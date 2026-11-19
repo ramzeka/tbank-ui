@@ -1,0 +1,4 @@
+*.cmd -text
+server.commands -text
+*.png binary
+*.woff2 binary

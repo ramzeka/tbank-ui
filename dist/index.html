@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#141414">
+  <title>Т-Банк UI | Номинальные счета</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">К содержанию</a>
+  <header class="top">
+    <div class="shell top-inner">
+      <div class="brand">
+        <span class="brand-marks">
+          <img src="/tbank-mark.png" width="38" height="38" alt="Т‑Банк">
+          <span aria-hidden="true">×</span>
+          <img src="/smlt-mark.svg" width="38" height="38" alt="СМЛТ Банк">
+        </span>
+        <span>Т-Банк UI | Номинальные счета</span>
+      </div>
+      <div class="session">
+        <span id="session-status" class="session-status" data-state="idle" role="status">Вход не выполнен</span>
+        <span id="token-expiry" class="settings-status" hidden></span>
+        <a id="settings-link" class="settings-link" href="#connection-settings"><span aria-hidden="true">⚙</span> Настройки подключения</a>
+      </div>
+    </div>
+  </header>
+  <div class="shell layout">
+    <aside class="sidebar">
+      <nav aria-label="Разделы">
+        <button class="nav" type="button" data-section="beneficiaries" aria-current="true"><span class="nav-icon person" aria-hidden="true"></span>Бенефициары и реквизиты</button>
+        <p class="nav-group">Биллинг</p>
+        <button class="nav" type="button" data-section="incoming-transactions"><span class="nav-icon file" aria-hidden="true"></span>Пополнения</button>
+      </nav>
+    </aside>
+    <main id="workspace" tabindex="-1">
+      <div id="data-view">
+          <div class="intro">
+            <div>
+              <h1 id="section-title" tabindex="-1">Бенефициары и реквизиты</h1>
+              <p id="section-description">Список бенефициаров, карточки и банковские реквизиты.</p>
+            </div>
+          </div>
+          <div class="data-area">
+            <section class="panel content" aria-labelledby="request-title">
+              <div class="panel-heading">
+                <h2 id="request-title">Запрос данных</h2>
+              </div>
+              <p id="beneficiary-status" class="inline-status" role="status"></p>
+              <div class="query-options">
+                <form id="list-form" class="query-option">
+                  <h3>Список</h3>
+                  <div class="query-metrics">
+                    <label for="limit">Строк на странице
+                      <input id="limit" type="number" min="1" max="100" value="50" required>
+                    </label>
+                    <label id="offset-field" for="offset">Смещение
+                      <input id="offset" type="number" min="0" max="2147483647" step="1" value="0" required>
+                    </label>
+                  </div>
+                  <button id="load" type="submit" disabled>Получить список</button>
+                </form>
+                <form id="detail-form" class="query-option">
+                  <h3>Карточка</h3>
+                  <label for="item-id"><span id="item-label">ID бенефициара</span>
+                    <input id="item-id" placeholder="UUID" spellcheck="false">
+                  </label>
+                  <button id="detail" type="submit" class="secondary" disabled>Открыть карточку</button>
+                </form>
+              </div>
+            </section>
+            <section class="panel content results" aria-labelledby="results-title">
+              <h2 id="results-title" tabindex="-1">Результат запроса</h2>
+              <p id="request-status" class="status" data-state="idle" role="status">Откройте настройки подключения и войдите, чтобы загрузить данные.</p>
+              <div id="result" class="table-scroll"></div>
+              <div id="pagination" class="actions pagination" hidden>
+                <button id="previous" type="button" class="secondary">Назад</button>
+                <button id="next" type="button" class="secondary">Далее</button>
+              </div>
+            </section>
+            <section id="beneficiary-panel" class="panel content beneficiary-panel" aria-labelledby="beneficiary-name" hidden>
+              <div class="panel-heading">
+                <div>
+                  <p id="beneficiary-type" class="eyebrow"></p>
+                  <h2 id="beneficiary-name" tabindex="-1">Карточка бенефициара</h2>
+                </div>
+                <div class="actions">
+                  <button id="beneficiary-close" type="button" class="secondary" data-beneficiary-action>Закрыть карточку</button>
+                </div>
+              </div>
+              <div id="beneficiary-data"></div>
+              <p id="bank-availability" class="inline-status" role="status"></p>
+            </section>
+            <section id="bank-section" class="panel content bank-section" aria-labelledby="bank-title" hidden>
+                <h2 id="bank-title">Реквизиты</h2>
+                <form id="bank-search" class="bank-search">
+                  <label for="bank-id">ID реквизитов
+                    <input id="bank-id" placeholder="UUID" spellcheck="false" required>
+                  </label>
+                  <button type="submit" class="secondary" data-beneficiary-action>Найти по ID</button>
+                </form>
+                <p id="bank-status" class="inline-status" role="status"></p>
+                <div id="bank-list" class="table-scroll"></div>
+                <section id="bank-detail" class="bank-detail" aria-labelledby="bank-record-title" hidden>
+                  <div class="panel-heading">
+                    <div class="actions">
+                      <h3 id="bank-record-title" tabindex="-1">Реквизиты</h3>
+                    </div>
+                  </div>
+                  <div id="bank-data" class="table-scroll"></div>
+                </section>
+            </section>
+          </div>
+      </div>
+      <section id="connection-settings" aria-labelledby="settings-title" hidden>
+        <div class="intro">
+          <div>
+            <a class="back-link" href="#workspace">← К данным</a>
+            <h1 id="settings-title" tabindex="-1">Настройки подключения</h1>
+          </div>
+        </div>
+        <div class="data-area">
+          <section class="panel content" aria-labelledby="proxy-title">
+            <div class="panel-heading">
+              <h2 id="proxy-title">Прокси и счёт</h2>
+              <span id="settings-badge" class="settings-badge" hidden>Сохранены</span>
+            </div>
+            <form id="settings-form" class="settings-form">
+              <label for="proxy">Базовый URL прокси
+                <input id="proxy" type="url" placeholder="https://proxy.company.example" required spellcheck="false">
+              </label>
+              <label for="prefix">Путь к номинальным счетам
+                <input id="prefix" placeholder="/api/v1/nominal-accounts" required spellcheck="false">
+              </label>
+              <label for="bank-account-id">bankAccountId
+                <input id="bank-account-id" placeholder="UUID номинального счёта" spellcheck="false">
+              </label>
+              <label for="account-number">accountNumber
+                <input id="account-number" placeholder="Номер номинального счёта" inputmode="numeric" spellcheck="false">
+              </label>
+              <div class="wide actions">
+                <button type="submit">Сохранить настройки</button>
+                <span id="settings-status" class="settings-status" role="status"></span>
+              </div>
+            </form>
+          </section>
+          <section class="panel content" aria-labelledby="token-title">
+            <div class="panel-heading"><h2 id="token-title">Вход по Bearer-токену</h2></div>
+            <form id="token-form" class="token-form" autocomplete="off">
+              <label for="access-token">Access token
+                <input id="access-token" placeholder="Bearer &lt;token&gt;" type="password" required maxlength="24576" spellcheck="false" autocomplete="off">
+              </label>
+              <div class="actions">
+                <button id="token-login" type="submit" disabled>Войти</button>
+                <span id="token-status" class="inline-status" role="status"></span>
+              </div>
+            </form>
+            <button id="logout" class="secondary" type="button" hidden>Завершить сеанс</button>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
