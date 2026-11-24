@@ -61,7 +61,18 @@
         $path = $Matches[2]
         if ($path.StartsWith('/api/relay/', [StringComparison]::Ordinal)) {
             $query = $Matches[3]
-            if ($method -cne 'GET') {
+            $idPart = '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'
+            $beneficiary = "(?:/[^/?#]+)*/beneficiaries/$idPart"
+            $accounts = "$beneficiary/bank-details"
+            $identify = "/api/relay(?:/[^/?#]+)*/incoming-transactions/$idPart/identify"
+            $allowed = switch -CaseSensitive ($method) {
+                'GET'    { $true }
+                'POST'   { $path -cmatch "^(?:/api/relay(?:/[^/?#]+)*/beneficiaries|/api/relay$accounts(?:/$idPart/set-default)?|$identify)$" }
+                'PUT'    { $path -cmatch "^/api/relay(?:$beneficiary|$accounts/$idPart)$" }
+                'DELETE' { $path -cmatch "^/api/relay$accounts/$idPart$" }
+                default  { $false }
+            }
+            if (-not $allowed) {
                 Send-Json $stream '405 Method Not Allowed' @{ message = 'Unsupported API method.' }
                 return $true
             }
@@ -75,7 +86,7 @@
             $length = Get-Header $lines 'Content-Length'
             if ($lines -match '^Transfer-Encoding[ \t]*:' -or
                 (($lines -match '^Content-Length:') -and ($length -notmatch '^(0|[1-9][0-9]{0,5})$' -or [int]$length -gt $maxBody)) -or
-                ([int]$length -gt 0 -and ($method -ceq 'GET' -or (Get-Header $lines 'Content-Type') -ne 'application/json'))) {
+                ([int]$length -gt 0 -and ($method -cin @('GET', 'DELETE') -or (Get-Header $lines 'Content-Type') -ne 'application/json'))) {
                 Send-Json $stream '400 Bad Request' @{ error = 'invalid_request' }
                 return $true
             }
@@ -212,7 +223,9 @@
 
     $routes.Add('/health', @{ Body = [Text.Encoding]::ASCII.GetBytes($runId); Type = 'text/plain' })
     Add-Asset '/' 'index.html' 'text/html'
+    Add-Asset '/identify.js' 'identify.js' 'text/javascript'
     Add-Asset '/app.js' 'app.js' 'text/javascript'
+    Add-Asset '/entity-editor.js' 'entity-editor.js' 'text/javascript'
     Add-Asset '/beneficiaries.js' 'beneficiaries.js' 'text/javascript'
     Add-Asset '/beneficiary-schema.js' 'beneficiary-schema.js' 'text/javascript'
     Add-Asset '/inter.woff2' 'inter.woff2' 'font/woff2'

@@ -1,12 +1,21 @@
+import { initIdentification } from './identify.js';
 import { beneficiaryName, initBeneficiaries, listPage } from './beneficiaries.js';
 import { beneficiaryTypes } from './beneficiary-schema.js';
 
 const $ = (id) => document.getElementById(id);
 const defaultPrefix = '/api/v1/nominal-accounts';
+const defaultPageSize = 50;
+const pageSizes = [10, 25, defaultPageSize];
 const storageKey = 'nominal-accounts-settings';
 const sections = {
-  beneficiaries: { title: 'Бенефициары и реквизиты', description: 'Список бенефициаров, карточки и банковские реквизиты.' },
-  'incoming-transactions': { title: 'Пополнения', description: 'Неидентифицированные пополнения номинального счёта.' },
+  beneficiaries: {
+    title: 'Бенефициары и реквизиты', listTitle: 'Бенефициары',
+    description: 'Список бенефициаров, карточки и банковские реквизиты.', pageSizes: [...pageSizes, 100],
+  },
+  'incoming-transactions': {
+    title: 'Пополнения', listTitle: 'Пополнения',
+    description: 'Неидентифицированные пополнения номинального счёта.', pageSizes,
+  },
 };
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 let config;
@@ -55,15 +64,16 @@ function updateControls() {
   $('token-form').hidden = Boolean(session);
   $('logout').hidden = !session;
   $('settings-badge').hidden = !config;
-  const isBeneficiarySection = section === 'beneficiaries';
-  $('beneficiary-status').hidden = !isBeneficiarySection;
-  $('detail-form').hidden = !isBeneficiarySection;
-  $('limit').max = String(maxPageSize());
-  beneficiaryWorkspace.setEnabled(Boolean(session) && isBeneficiarySection);
-  for (const id of ['load', 'detail', 'previous', 'next']) {
-    $(id).disabled = !session || Boolean(activeRequest) ||
-      (id === 'previous' && !(page?.offset > 0)) || (id === 'next' && !page?.hasNext);
-  }
+  const canOpenBeneficiary = Boolean(session) && section === 'beneficiaries';
+  $('beneficiary-create').hidden = !canOpenBeneficiary;
+  $('detail-form').hidden = !canOpenBeneficiary;
+  beneficiaryWorkspace.setEnabled(canOpenBeneficiary);
+  const listBusy = !session || Boolean(activeRequest);
+  $('pagination').hidden = !session;
+  $('refresh').disabled = listBusy;
+  $('limit').disabled = listBusy;
+  $('previous').disabled = listBusy || !page?.offset;
+  $('next').disabled = listBusy || !page?.hasNext;
 }
 
 function showStatus(id, message, state = 'idle') {
@@ -76,14 +86,17 @@ function clearResults(message) {
   activeRequest?.abort();
   activeRequest = undefined;
   page = undefined;
+  $('identify-feedback').textContent = '';
   $('result').replaceChildren();
-  $('pagination').hidden = true;
   $('result').removeAttribute('aria-busy');
   showStatus('request-status', message);
   updateControls();
 }
 
-function endSession(message, state = 'idle') {
+function endSession(message, state = 'idle', keepDraft = false) {
+  identification.endSession(keepDraft);
+  if (keepDraft) beneficiaryWorkspace.suspendDraft();
+  else beneficiaryWorkspace.close();
   clearTokenInput();
   session = undefined;
   clearInterval(expiryTimer);
@@ -171,7 +184,7 @@ function updateTokenTimer() {
   }
   const seconds = Math.ceil((session.expiresAt - Date.now()) / 1000);
   if (seconds <= 0) {
-    endSession(expiredMessage, 'error');
+    endSession(expiredMessage, 'error', true);
     return;
   }
   const hours = Math.floor(seconds / 3600);
@@ -202,7 +215,7 @@ function importToken(event) {
   if (!session) return;
   closeSettings();
   loadFirstPage();
-  $('load').focus({ preventScroll: true });
+  $(beneficiaryWorkspace.editing ? 'entity-title' : 'results-title').focus({ preventScroll: true });
 }
 
 function responseJson(value) {
@@ -241,19 +254,21 @@ function apiErrorMessage(status, data) {
   return 'HTTP ' + status + code + (messages.size ? '. ' + [...messages].join(' ') : '');
 }
 
-async function requestApi(path, { query, signal } = {}) {
+async function requestApi(path, { query, signal, method = 'GET', body, key } = {}) {
   const current = session;
   if (!current || !await checkServer() || current !== session) throw new Error('Войдите в приложение.');
   const url = new URL(config.proxy);
   url.pathname = url.pathname.replace(/\/+$/, '') + config.prefix + path;
   for (const [name, value] of Object.entries(query ?? {})) url.searchParams.set(name, value);
-  if (path === '/incoming-transactions' && config.accountNumber) url.searchParams.set('accountNumber', config.accountNumber);
+  if (config.accountNumber && (path === '/incoming-transactions' || path === '/virtual-accounts/balances')) {
+    url.searchParams.set('accountNumber', config.accountNumber);
+  }
 
   const send = () => {
     signal?.throwIfAborted();
     if (session !== current) throw new Error('Сеанс завершён.');
     if (current.expiresAt !== undefined && current.expiresAt <= Date.now()) {
-      endSession(expiredMessage, 'error');
+      endSession(expiredMessage, 'error', true);
       throw new Error(expiredMessage);
     }
     const headers = {
@@ -262,9 +277,11 @@ async function requestApi(path, { query, signal } = {}) {
       'X-TBank-Run': serverRun,
     };
     if (config.bankAccountId) headers.bankAccountId = config.bankAccountId;
+    if (key) headers['Idempotency-Key'] = key;
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
     const timeout = AbortSignal.timeout(25000);
     return fetch('/api/relay' + url.pathname + url.search, {
-      method: 'GET', headers,
+      method, headers, body: JSON.stringify(body),
       redirect: 'error', credentials: 'omit', cache: 'no-store',
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
@@ -287,10 +304,12 @@ async function requestApi(path, { query, signal } = {}) {
     const explanation = apiErrorMessage(status, data);
     if (status === 401) {
       const message = explanation + ' Введите новый access token.';
-      endSession(message, 'error');
+      endSession(message, 'error', true);
       throw new Error(message);
     }
-    throw new Error(explanation);
+    const error = new Error(explanation);
+    error.details = data?.errorDetails ?? data?.errors;
+    throw error;
   }
   return data;
 }
@@ -377,7 +396,12 @@ function appendTransaction(body, row, item, index) {
     toggle.textContent = details.hidden ? 'Подробнее' : 'Свернуть';
     if (!details.hidden && !container.firstChild) container.append(transactionDetails(item));
   });
-  cell(row, toggle);
+  const actions = document.createElement('div');
+  actions.className = 'transaction-actions';
+  const identify = identification.buttonFor(item);
+  row.dataset.operationId = item.operationId ?? '';
+  actions.append(identify, toggle);
+  cell(row, actions);
 }
 
 function render(data, offset, limit) {
@@ -390,7 +414,7 @@ function render(data, offset, limit) {
   if (!beneficiaries) table.className = 'transactions-table';
   const labels = beneficiaries
     ? ['Бенефициар', 'Тип', 'ИНН', 'ID']
-    : ['Дата', 'Сумма', 'Плательщик', 'Назначение платежа', 'Детали'];
+    : ['Дата', 'Сумма', 'Плательщик', 'Назначение платежа', 'Действия'];
   for (const label of labels) cell(header, label, true);
   const body = table.createTBody();
   for (const [index, item] of rows.entries()) {
@@ -398,50 +422,60 @@ function render(data, offset, limit) {
     if (beneficiaries) {
       const id = item?.beneficiaryId ?? item?.id ?? '';
       const name = beneficiaryName(item ?? {});
-      const open = () => beneficiaryWorkspace.open(id);
+      const open = (event) => beneficiaryWorkspace.open(id, event.currentTarget);
       cell(row, uuid.test(id) ? openLink(name, open) : name);
       cell(row, beneficiaryTypes[item?.type] ?? item?.type);
       cell(row, item?.inn);
-      cell(row, uuid.test(id) ? openLink(id, open) : id || '—').className = 'record-id';
+      const idCell = cell(row, id || '—');
+      idCell.className = 'record-id';
+      if (uuid.test(id)) {
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.className = 'copy-id';
+        copy.title = 'Скопировать ID';
+        copy.setAttribute('aria-label', 'Скопировать ID бенефициара ' + id);
+        let reset;
+        copy.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(id);
+            copy.classList.add('copied');
+            copy.title = 'Скопировано';
+            $('copy-status').textContent = 'ID бенефициара скопирован';
+            clearTimeout(reset);
+            reset = setTimeout(() => {
+              copy.classList.remove('copied');
+              copy.title = 'Скопировать ID';
+            }, 1600);
+          } catch {
+            showStatus('request-status', 'Выделите и скопируйте ID из строки.', 'error');
+          }
+        });
+        idCell.append(copy);
+      }
     } else {
       appendTransaction(body, row, item, index);
     }
   }
-  $('result').append(table);
+  $('result').replaceChildren(table);
   const hasNext = total === undefined ? rows.length === limit : offset + rows.length < total;
   page = { offset, limit, hasNext: hasNext && offset + limit <= 2147483647 };
-  $('pagination').hidden = !offset && !page.hasNext;
   showStatus('request-status', rows.length ? 'Строки ' + (offset + 1) + '–' + (offset + rows.length) : 'Список пуст.', 'success');
 }
 
-function maxPageSize() {
-  return section === 'incoming-transactions' ? 50 : 100;
-}
-
-async function load(offset = 0, limit = $('limit').valueAsNumber) {
+async function load(offset = 0, limit = Number($('limit').value)) {
   if (!session || activeRequest) return;
   const controller = new AbortController();
   activeRequest = controller;
-  page = undefined;
-  $('result').replaceChildren();
-  $('pagination').hidden = true;
   $('result').setAttribute('aria-busy', 'true');
   showStatus('request-status', 'Загружаем данные…', 'loading');
   updateControls();
   try {
-    const maximum = maxPageSize();
-    if (!Number.isInteger(limit) || limit < 1 || limit > maximum) {
-      throw new Error('Укажите от 1 до ' + maximum + ' строк.');
-    }
-    if ((!Number.isInteger(offset) || offset < 0 || offset > 2147483647)) {
-      throw new Error('Смещение должно быть целым числом от 0 до 2147483647.');
-    }
-    $('offset').value = offset;
     const data = await requestApi('/' + section, { query: { offset, limit }, signal: controller.signal });
+    if (controller.signal.aborted) return;
     render(data, offset, limit);
-    if ($('request-status').dataset.state === 'loading') showStatus('request-status', 'Данные получены.', 'success');
   } catch (error) {
     if (!controller.signal.aborted) {
+      if (page) $('limit').value = page.limit;
       showStatus('request-status', error.message, 'error');
     }
   } finally {
@@ -453,13 +487,34 @@ async function load(offset = 0, limit = $('limit').valueAsNumber) {
   }
 }
 
-const beneficiaryWorkspace = initBeneficiaries(requestApi);
+const identification = initIdentification(requestApi, uuid, operationId => {
+  const row = $('result').querySelector('[data-operation-id="' + operationId + '"]');
+  row?.nextElementSibling?.remove();
+  row?.remove();
+  $('identify-feedback').textContent = 'Пополнение идентифицировано.';
+  const offset = page?.offset ?? 0;
+  const limit = page?.limit ?? defaultPageSize;
+  activeRequest?.abort();
+  activeRequest = undefined;
+  load(offset && !$('result').querySelector('[data-operation-id]') ? Math.max(0, offset - limit) : offset, limit);
+});
+const beneficiaryWorkspace = initBeneficiaries(requestApi, () => {
+  activeRequest?.abort();
+  activeRequest = undefined;
+  return load(page?.offset ?? 0);
+});
 
 function loadFirstPage() {
-  $('limit').value = 50;
-  $('offset').value = 0;
   clearResults('Войдите в настройках подключения, чтобы загрузить данные.');
-  if (session) load(0, 50);
+  if (session) load();
+}
+
+function updateSection() {
+  const { title, listTitle, description, pageSizes } = sections[section];
+  $('section-title').textContent = title;
+  $('section-description').textContent = description;
+  $('results-title').textContent = listTitle;
+  $('limit').replaceChildren(...pageSizes.map((size) => new Option(size, size, false, size === defaultPageSize)));
 }
 
 function fillSettings() {
@@ -486,6 +541,7 @@ $('settings-form').addEventListener('submit', (event) => {
       bankAccountId: $('bank-account-id').value,
       accountNumber: $('account-number').value,
     });
+    if (JSON.stringify(next) !== JSON.stringify(config) && !beneficiaryWorkspace.leaveEditor()) return;
     localStorage.setItem(storageKey, JSON.stringify(next));
     if (JSON.stringify(next) !== JSON.stringify(config)) endSession('Вход не выполнен');
     config = next;
@@ -499,32 +555,35 @@ $('settings-form').addEventListener('submit', (event) => {
 });
 $('token-form').addEventListener('submit', importToken);
 $('logout').addEventListener('click', () => {
+  if (!beneficiaryWorkspace.leaveEditor()) return;
   endSession('Локальный сеанс завершён');
   $('access-token').focus();
 });
-$('list-form').addEventListener('submit', (event) => {
-  event.preventDefault();
-  load($('offset').valueAsNumber);
-});
+$('refresh').addEventListener('click', () => load(page?.offset));
+$('limit').addEventListener('change', () => load());
 $('detail-form').addEventListener('submit', (event) => {
   event.preventDefault();
-  if (section === 'beneficiaries') beneficiaryWorkspace.open($('item-id').value);
+  beneficiaryWorkspace.open($('item-id').value, event.submitter);
 });
 $('previous').addEventListener('click', () => load(Math.max(0, page.offset - page.limit), page.limit));
 $('next').addEventListener('click', () => load(page.offset + page.limit, page.limit));
 document.querySelectorAll('[data-section]').forEach((button) => {
   button.addEventListener('click', () => {
+    if (!beneficiaryWorkspace.leaveEditor()) return;
     closeSettings();
-    if (button.dataset.section === section) return;
+    if (button.dataset.section === section) {
+      if ($('list-panel').hidden) beneficiaryWorkspace.close();
+      return;
+    }
     document.querySelector('[aria-current="true"]').removeAttribute('aria-current');
     button.setAttribute('aria-current', 'true');
     section = button.dataset.section;
-    $('section-title').textContent = sections[section].title;
-    $('section-description').textContent = sections[section].description;
+    updateSection();
     $('item-id').value = '';
     loadFirstPage();
   });
 });
+updateSection();
 updateControls();
 
 syncSettingsView();

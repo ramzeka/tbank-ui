@@ -44,41 +44,47 @@
             </div>
           </div>
           <div class="data-area">
-            <section class="panel content" aria-labelledby="request-title">
+            <section id="list-panel" class="panel content results" aria-labelledby="results-title">
               <div class="panel-heading">
-                <h2 id="request-title">Запрос данных</h2>
+                <h2 id="results-title" tabindex="-1">Бенефициары</h2>
+                <div class="actions">
+                  <button id="refresh" type="button" class="secondary" disabled>Обновить</button>
+                  <button id="beneficiary-create" type="button" class="create-action" data-beneficiary-action hidden>Создать бенефициара</button>
+                </div>
               </div>
-              <p id="beneficiary-status" class="inline-status" role="status"></p>
-              <div class="query-options">
-                <form id="list-form" class="query-option">
-                  <h3>Список</h3>
-                  <div class="query-metrics">
-                    <label for="limit">Строк на странице
-                      <input id="limit" type="number" min="1" max="100" value="50" required>
-                    </label>
-                    <label id="offset-field" for="offset">Смещение
-                      <input id="offset" type="number" min="0" max="2147483647" step="1" value="0" required>
-                    </label>
-                  </div>
-                  <button id="load" type="submit" disabled>Получить список</button>
+              <p id="request-status" class="status" data-state="idle" role="status">Откройте настройки подключения и войдите, чтобы загрузить данные.</p>
+              <p id="identify-feedback" role="status" class="inline-status"></p>
+              <div class="results-table">
+                <form id="detail-form" class="beneficiary-search" hidden>
+                  <label for="item-id">ID бенефициара</label>
+                  <input id="item-id" placeholder="UUID" spellcheck="false" required data-beneficiary-action>
+                  <button type="submit" class="secondary" data-beneficiary-action>Открыть</button>
+                  <p id="beneficiary-status" class="inline-status" role="status"></p>
                 </form>
-                <form id="detail-form" class="query-option">
-                  <h3>Карточка</h3>
-                  <label for="item-id"><span id="item-label">ID бенефициара</span>
-                    <input id="item-id" placeholder="UUID" spellcheck="false">
-                  </label>
-                  <button id="detail" type="submit" class="secondary" disabled>Открыть карточку</button>
-                </form>
+                <span class="sr-only" id="copy-status" role="status"></span>
+                <div id="result" class="table-scroll"></div>
+              </div>
+              <div id="pagination" class="actions pagination" hidden>
+                <label for="limit">Строк на странице
+                  <select id="limit"></select>
+                </label>
+                <div class="actions">
+                  <button id="previous" type="button" class="secondary">Назад</button>
+                  <button id="next" type="button" class="secondary">Далее</button>
+                </div>
               </div>
             </section>
-            <section class="panel content results" aria-labelledby="results-title">
-              <h2 id="results-title" tabindex="-1">Результат запроса</h2>
-              <p id="request-status" class="status" data-state="idle" role="status">Откройте настройки подключения и войдите, чтобы загрузить данные.</p>
-              <div id="result" class="table-scroll"></div>
-              <div id="pagination" class="actions pagination" hidden>
-                <button id="previous" type="button" class="secondary">Назад</button>
-                <button id="next" type="button" class="secondary">Далее</button>
-              </div>
+            <section id="entity-editor" class="panel content" aria-labelledby="entity-title" hidden>
+              <h2 id="entity-title" tabindex="-1"></h2>
+              <p id="entity-owner" class="field-hint"></p>
+              <p id="entity-status" class="status" role="status"></p>
+              <form id="entity-form" autocomplete="off">
+                <fieldset id="entity-fields" class="entity-fields"></fieldset>
+                <div class="actions">
+                  <button id="entity-save" type="submit" class="create-action">Сохранить</button>
+                  <button id="entity-cancel" type="button" class="secondary">Отмена</button>
+                </div>
+              </form>
             </section>
             <section id="beneficiary-panel" class="panel content beneficiary-panel" aria-labelledby="beneficiary-name" hidden>
               <div class="panel-heading">
@@ -87,14 +93,32 @@
                   <h2 id="beneficiary-name" tabindex="-1">Карточка бенефициара</h2>
                 </div>
                 <div class="actions">
-                  <button id="beneficiary-close" type="button" class="secondary" data-beneficiary-action>Закрыть карточку</button>
+                  <button id="beneficiary-edit" type="button" data-beneficiary-action>Редактировать</button>
+                  <button id="beneficiary-close" type="button" class="secondary">К списку</button>
                 </div>
               </div>
               <div id="beneficiary-data"></div>
-              <p id="bank-availability" class="inline-status" role="status"></p>
+              <p id="beneficiary-feedback" class="inline-status" role="status"></p>
+              <section class="balances" aria-labelledby="balances-title">
+                <div class="panel-heading">
+                  <h3 id="balances-title">Баланс на виртуальных счетах</h3>
+                  <button id="balance-load" type="button" class="secondary" data-beneficiary-action>Показать баланс</button>
+                </div>
+                <p id="balance-status" class="inline-status" role="status"></p>
+                <div id="balance-table" class="table-scroll"></div>
+                <div id="balance-pages" class="actions" aria-label="Страницы баланса" hidden>
+                  <button id="balance-prev" type="button" class="secondary" data-beneficiary-action>Назад</button>
+                  <button id="balance-next" type="button" class="secondary" data-beneficiary-action>Далее</button>
+                </div>
+              </section>
             </section>
             <section id="bank-section" class="panel content bank-section" aria-labelledby="bank-title" hidden>
-                <h2 id="bank-title">Реквизиты</h2>
+                <div class="panel-heading">
+                  <h2 id="bank-title">Реквизиты</h2>
+                  <button id="bank-create" type="button" data-beneficiary-action>Добавить реквизиты</button>
+                </div>
+                <p id="bank-availability" class="inline-status" role="status"></p>
+                <button id="bank-retry" type="button" class="secondary" data-beneficiary-action hidden>Повторить загрузку</button>
                 <form id="bank-search" class="bank-search">
                   <label for="bank-id">ID реквизитов
                     <input id="bank-id" placeholder="UUID" spellcheck="false" required>
@@ -109,7 +133,7 @@
                       <h3 id="bank-record-title" tabindex="-1">Реквизиты</h3>
                     </div>
                   </div>
-                  <div id="bank-data" class="table-scroll"></div>
+                  <div id="bank-data"></div>
                 </section>
             </section>
           </div>
@@ -163,5 +187,46 @@
       </section>
     </main>
   </div>
+  <dialog id="identify-dialog" class="entity-dialog" aria-labelledby="identify-title">
+    <form id="identify-form" novalidate autocomplete="off">
+      <header class="dialog-heading">
+        <h2 id="identify-title">Идентифицировать пополнение</h2>
+        <p id="identify-payment"></p>
+        <p class="field-hint">ID операции <span id="identify-operation"></span></p>
+      </header>
+      <fieldset id="identify-fields" class="entity-fields">
+        <div id="distribution-rows" class="field-rows"></div>
+        <button id="distribution-add" type="button" class="secondary">Добавить бенефициара</button>
+      </fieldset>
+      <div class="distribution-summary">
+        <span>Распределено <strong id="distribution-total"></strong></span>
+        <span>Осталось <strong id="distribution-left"></strong></span>
+      </div>
+      <footer class="dialog-footer">
+        <p id="identify-status" class="inline-status" role="status"></p>
+        <button id="identify-cancel" type="button" class="secondary">Отмена</button>
+        <button id="identify-submit" type="submit" class="create-action">Идентифицировать</button>
+      </footer>
+    </form>
+  </dialog>
+  <template id="distribution-row">
+    <div class="distribution-row">
+      <label>ID бенефициара
+        <input name="beneficiaryId" placeholder="UUID бенефициара" autocomplete="off" spellcheck="false" required>
+      </label>
+      <label>Сумма
+        <input name="amount" inputmode="decimal" placeholder="0,00" required>
+      </label>
+      <button type="button" class="secondary distribution-remove">Убрать</button>
+      <button type="button" class="secondary recipient-check" hidden>Проверить бенефициара</button>
+      <div class="recipient-preview" hidden>
+        <div class="recipient-info" role="status"></div>
+        <h3>Баланс на виртуальных счетах</h3>
+        <p class="recipient-balance-status inline-status" role="status"></p>
+        <div class="recipient-balances table-scroll"></div>
+        <button type="button" class="secondary recipient-more" hidden>Показать ещё</button>
+      </div>
+    </div>
+  </template>
 </body>
 </html>

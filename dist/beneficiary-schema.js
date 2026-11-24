@@ -127,7 +127,6 @@ export const documentFields = {
   PATENT: [...documentIdentity, expiry],
 };
 
-const terminal = field('terminalKey', 'Ключ терминала', { ...required, maxLength: 256 });
 const isDefault = field('isDefault', 'Реквизиты по умолчанию', { type: 'boolean' });
 
 export const bankFields = {
@@ -141,20 +140,6 @@ export const bankFields = {
     field('kpp', 'КПП получателя', { inputMode: 'numeric', pattern: '(?:\\d{9}|0)' }),
     isDefault,
   ],
-  CARD: [
-    terminal,
-    field('cardData', 'Зашифрованные данные карты (Base64)', {
-      ...required, maxLength: 512, type: 'password',
-      hint: 'Вставьте готовое значение cardData. Для редактирования карты его нужно ввести повторно.',
-    }),
-    isDefault,
-  ],
-  SBP: [
-    field('phoneNumber', 'Телефон получателя', { ...required, type: 'tel', pattern: '\\+7[0-9]{10}', placeholder: '+79991234567' }),
-    field('bankId', 'ID банка в СБП', { ...required, ...digits(12) }),
-    terminal,
-    isDefault,
-  ],
 };
 
 export function validateBeneficiary(data) {
@@ -163,6 +148,7 @@ export function validateBeneficiary(data) {
 
   const addresses = data.addresses ?? [];
   if (data.type.startsWith('UL_')) {
+    if (data.type === 'UL_NONRESIDENT' && !data.inn && !data.kio) throw new Error('Укажите ИНН или КИО.');
     if ((data.type === 'UL_NONRESIDENT' || addresses.length) && !addresses.some((item) => item.type === 'LEGAL_ENTITY_ADDRESS')) {
       throw new Error('Добавьте юридический адрес.');
     }
