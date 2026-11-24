@@ -86,6 +86,7 @@ const proxySource = proxyConfiguration?.source ?? 'proxy.cfg';
 const proxyOrigins = proxyConfiguration?.origins ?? {};
 const proxyPaths = proxyConfiguration?.paths ?? {};
 const proxyPrefixes = proxyConfiguration?.prefixes ?? {};
+const proxyStatementPaths = proxyConfiguration?.statements ?? {};
 const configuredEnvironments = Object.keys(environmentLabels).filter(name => Object.hasOwn(proxyOrigins, name));
 let selectedEnvironment = configuredEnvironments[0] ?? '';
 let serverStopped = false;
@@ -381,10 +382,11 @@ async function requestApi(path, { query, signal, method = 'GET', body, idempoten
     throw new Error('Укажите номер номинального счёта в настройках подключения, чтобы загрузить переводы.');
   }
   const url = new URL(config.proxy);
-  const prefix = path === statementPath ? '' : path === scoringPath
+  const prefix = path === scoringPath
     ? config.prefix.replace(/\/v1\/nominal-accounts$/, '/v2/nominal-accounts')
     : config.prefix;
-  url.pathname = url.pathname.replace(/\/+$/, '') + prefix + path;
+  const apiPath = path === statementPath ? (proxyStatementPaths[config.environment] ?? statementPath) : prefix + path;
+  url.pathname = url.pathname.replace(/\/+$/, '') + apiPath;
   for (const [name, value] of Object.entries(query ?? {})) {
     if (Array.isArray(value)) {
       url.searchParams.delete(name);
@@ -395,7 +397,7 @@ async function requestApi(path, { query, signal, method = 'GET', body, idempoten
     '/virtual-accounts/holds', '/payments', transfersPath].includes(path)) {
     url.searchParams.set('accountNumber', config.accountNumber);
   }
-  const account = path === statementPath ? '' : config.bankAccountId;
+  const account = config.bankAccountId;
   const json = JSON.stringify(body);
   const environment = config.environment;
   const relay = key => requestRelay(url, { current, account, environment, method, json, signal, key });

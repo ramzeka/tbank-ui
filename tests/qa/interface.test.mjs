@@ -85,7 +85,7 @@ export const interfaces = [
     assert.equal(query.get('ucid'), '9000000000000000001');
     assert.equal(query.get('operationStatus'), 'Transaction');
     assert.equal(query.get('withBalances'), 'true');
-    assert.equal(request.account, undefined);
+    assert.equal(request.account, uuid(990));
     await t.wait('#statement-balances');
   }),
   test('STMT-02', 'Повторившийся курсор отклоняется, предыдущая страница остается читаемой', async t => {

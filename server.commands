@@ -15,6 +15,7 @@
     $approvedOrigins = [ordered]@{}
     $gatewayPaths = @{}
     $nominalPaths = @{}
+    $statementPaths = @{}
     function Add-ProxyEnvironment($name, $value, $demo, $source, $nominalPath) {
         $configuredUri = $null
         if ($value -cnotmatch "\Ahttps?://[^/?#\\\s]+(?:$canonicalPath)?/?\z" -or
@@ -30,6 +31,9 @@
         $approvedOrigins[$name] = $configuredUri.GetLeftPart([UriPartial]::Authority)
         $gatewayPaths[$name] = $configuredUri.AbsolutePath.TrimEnd('/')
         $nominalPaths[$name] = $nominalPath
+        $statementPaths[$name] = if ($nominalPath -cmatch '\A(/(?:api/)?v1)/nominal-accounts\z') {
+            "$($Matches[1])/statement"
+        } else { '/api/v1/statement' }
     }
 
     $proxySource = 'proxy.cfg'
@@ -220,8 +224,9 @@
             $target.AbsolutePath.Substring($nominalBase.Length)
         } else { '' }
         $scoringBase = $gateway + ($nominal -creplace '/v1/nominal-accounts\z', '/v2/nominal-accounts')
+        $statementBase = $gateway + $statementPaths[$environment]
         $specialRead = $connection.Method -ceq 'GET' -and
-            ($target.AbsolutePath -ceq "$gateway/api/v1/statement" -or
+            ($target.AbsolutePath -ceq $statementBase -or
              $target.AbsolutePath -ceq "$scoringBase/beneficiaries/scoring")
         if (!$specialRead -and $route -cnotmatch $nominalRoutes[$connection.Method]) {
             Send-Json $stream '405 Method Not Allowed' @{ message = 'Unsupported API operation.' }
@@ -325,7 +330,7 @@
     $routes.Add('/health', @{ Body = [Text.Encoding]::ASCII.GetBytes($runId); Type = 'text/plain' })
     $index = [IO.File]::ReadAllText((Join-Path $env:TBANK_UI_DIST 'index.html'), [Text.Encoding]::UTF8)
     $proxyConfiguration = ConvertTo-Json -InputObject @{
-        source = $proxySource; origins = $approvedOrigins; paths = $gatewayPaths; prefixes = $nominalPaths
+        source = $proxySource; origins = $approvedOrigins; paths = $gatewayPaths; prefixes = $nominalPaths; statements = $statementPaths
     } -Compress
     $index = $index.Replace('__TBANK_PROXY_ENVIRONMENTS__', [Security.SecurityElement]::Escape($proxyConfiguration))
     $routes.Add('/', @{

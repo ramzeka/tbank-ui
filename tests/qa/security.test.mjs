@@ -1,5 +1,5 @@
 
-import { assert, path, test, testToken, secondToken, demoAccount, uuid, requestLocal, until } from './harness.mjs';
+import { assert, api, path, test, testToken, secondToken, demoAccount, uuid, requestLocal, until } from './harness.mjs';
 import { u3, entity, list, open, sign, settings, org, focus, last, payment, openStep, party, sameKey, reload } from './flows.mjs';
 
 const B = path.beneficiaries;
@@ -339,7 +339,7 @@ export const security = [
         await list(tab, 'statement');
         await tab.click('#statement-form button[type=submit]');
         await tab.wait('#statement-result table');
-        assert.equal(last(t, 'GET', '/qa-gateway' + path.statement).account, undefined);
+        assert.equal(last(t, 'GET', '/qa-gateway' + path.statement).account, uuid(990));
       } finally {
         await tab.closeTab();
       }
@@ -359,7 +359,10 @@ export const security = [
     const stage = 'https://stage.example.invalid';
     const override = 'https://override.example.invalid';
     const customPrefix = '/custom/v1/nominal-accounts';
-    const cfg = '\uFEFF# Test config\r\nstage=' + stage + '/gateway\r\nDEV = ' + dev + '\r\nstage.prefix=' + customPrefix + '\r\nprod=';
+    const prod = 'https://prod.example.invalid';
+    const shortPrefix = api.slice('/api'.length);
+    const cfg = ['\uFEFF# Test config', 'stage=' + stage + '/gateway', 'DEV = ' + dev,
+      'stage.prefix=' + customPrefix, 'prod=' + prod, 'prod.prefix=' + shortPrefix].join('\r\n');
     const read = (text, options = {}) => t.withStartupConfig(text, options, async relay => {
       const page = await requestLocal(relay.origin + '/');
       assert.equal(page.http, 200);
@@ -368,9 +371,12 @@ export const security = [
     });
     const configured = await read(cfg);
     assert.equal(configured.source, 'proxy.cfg');
-    assert.deepEqual(configured.origins, { dev, stage });
-    assert.deepEqual(configured.paths, { dev: '', stage: '/gateway' });
-    assert.deepEqual(configured.prefixes, { dev: '/api/v1/nominal-accounts', stage: customPrefix });
+    assert.deepEqual(configured.origins, { dev, stage, prod });
+    assert.deepEqual(configured.paths, { dev: '', stage: '/gateway', prod: '' });
+    assert.deepEqual(configured.prefixes, { dev: api, stage: customPrefix, prod: shortPrefix });
+    assert.deepEqual(configured.statements, {
+      dev: path.statement, stage: path.statement, prod: path.statement.slice('/api'.length),
+    });
     assert.deepEqual((await read(cfg, { trusted: override })).origins, { custom: override });
     assert.deepEqual((await read(cfg, { mockOrigin: t.mock.origin })).origins, { mock: t.mock.origin });
     assert.deepEqual((await read(dev, { legacy: true })).origins, { custom: dev });
