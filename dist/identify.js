@@ -1,21 +1,13 @@
 import { balanceTable, beneficiaryName, fetchBalancePage, fetchBeneficiary } from './beneficiaries.js';
 import { beneficiaryTypes } from './beneficiary-schema.js';
+import { decimal, minorUnits } from './amount.js';
+import { decorateFormLabels, recordField } from './record-details.js';
 
 const $ = id => document.getElementById(id);
 
-// Store minor units so distributions such as 0.10 + 0.20 compare exactly.
-function minorUnits(value) {
-  const text = String(value ?? '').trim();
-  const parts = /^(\d+|\d{1,3}(?:[ \u00a0\u202f]\d{3})+)(?:[.,](\d{1,2}))?$/.exec(text);
-  if (!parts) return null;
-  const whole = parts[1].replace(/[ \u00a0\u202f]/g, '');
-  if (whole.length > 16) return null;
-  return BigInt(whole) * 100n + BigInt((parts[2] ?? '').padEnd(2, '0'));
-}
-
-function decimal(units) {
-  const n = units < 0n ? -units : units;
-  return (units < 0n ? '-' : '') + String(n / 100n) + '.' + String(n % 100n).padStart(2, '0');
+function status(node, message, state = 'idle') {
+  node.textContent = message;
+  node.dataset.state = state;
 }
 
 function display(units, currency) {
@@ -27,6 +19,7 @@ function bindRecipientCheck(row, request, uuid, sessionSignal) {
   const check = row.querySelector('.recipient-check');
   const preview = row.querySelector('.recipient-preview');
   const info = row.querySelector('.recipient-info');
+  const infoStatus = row.querySelector('.recipient-info-status');
   const balances = row.querySelector('.recipient-balances');
   const balanceStatus = row.querySelector('.recipient-balance-status');
   const more = row.querySelector('.recipient-more');
@@ -43,6 +36,8 @@ function bindRecipientCheck(row, request, uuid, sessionSignal) {
     check.textContent = 'Проверить бенефициара';
     preview.hidden = true;
     info.replaceChildren();
+    status(infoStatus, '');
+    status(balanceStatus, '');
     balances.replaceChildren();
     more.hidden = true;
   }
@@ -51,39 +46,34 @@ function bindRecipientCheck(row, request, uuid, sessionSignal) {
     try {
       const record = await fetchBeneficiary(request, id, signal);
       if (signal.aborted) return;
-      const name = document.createElement('strong');
-      name.textContent = beneficiaryName(record);
-      info.replaceChildren(name);
+      const name = beneficiaryName(record);
       const type = beneficiaryTypes[record.type] ?? record.type;
-      const fields = [type !== name.textContent && type, record.inn && 'ИНН ' + record.inn].filter(Boolean);
-      if (fields.length) {
-        const details = document.createElement('p');
-        details.textContent = fields.join(' · ');
-        info.append(details);
-      }
+      const fields = document.createElement('dl');
+      fields.className = 'record-fields';
+      fields.append(recordField('name', 'Имя / наименование', name));
+      if (type && type !== name) fields.append(recordField('type', 'Тип', type));
+      if (record.inn) fields.append(recordField('inn', 'ИНН', record.inn));
+      info.replaceChildren(fields);
+      status(infoStatus, '');
     } catch (error) {
       if (signal.aborted) return;
-      info.dataset.state = 'error';
-      info.textContent = 'Данные бенефициара. ' + error.message;
+      status(infoStatus, 'Данные бенефициара. ' + error.message, 'error');
     }
   }
 
   async function showBalances(id, signal) {
     more.disabled = true;
-    balanceStatus.dataset.state = 'loading';
-    balanceStatus.textContent = 'Загружаем остатки…';
+    status(balanceStatus, 'Загружаем остатки…', 'loading');
     try {
       const page = await fetchBalancePage(request, id, balanceRows.length, signal);
       if (signal.aborted) return;
       balanceRows.push(...page.rows);
       if (balanceRows.length) balances.replaceChildren(balanceTable(balanceRows, { hideBeneficiaryId: true }));
-      balanceStatus.dataset.state = 'success';
-      balanceStatus.textContent = balanceRows.length ? '' : 'Данных об остатках нет.';
+      status(balanceStatus, balanceRows.length ? '' : 'Данных об остатках нет.');
       more.hidden = !page.hasMore;
     } catch (error) {
       if (signal.aborted) return;
-      balanceStatus.dataset.state = 'error';
-      balanceStatus.textContent = error.message;
+      status(balanceStatus, error.message, 'error');
     } finally {
       if (!signal.aborted) more.disabled = false;
     }
@@ -97,8 +87,7 @@ function bindRecipientCheck(row, request, uuid, sessionSignal) {
     const id = lastId;
     check.disabled = true;
     preview.hidden = false;
-    info.dataset.state = 'loading';
-    info.textContent = 'Загружаем данные бенефициара…';
+    status(infoStatus, 'Загружаем данные бенефициара…', 'loading');
     more.onclick = () => showBalances(id, signal);
     await Promise.all([showInfo(id, signal), showBalances(id, signal)]);
     if (signal.aborted) return;
@@ -113,12 +102,29 @@ function bindRecipientCheck(row, request, uuid, sessionSignal) {
   return reset;
 }
 
-export function initIdentification(request, uuid, onSuccess) {
+export function initIdentification({ request, uuid, verify, onResult }) {
   const dialog = $('identify-dialog');
   const rows = $('distribution-rows');
+  const feedback = $('identify-status');
+  const checkOutcome = $('identify-verify');
   const completed = new Set();
+  const uncertain = new Set();
+  for (const [id, label] of [['distribution-total', 'Распределено'], ['distribution-left', 'Осталось']]) {
+    const value = document.createElement('strong');
+    value.id = id;
+    $('distribution-summary').append(recordField('amount', label, value));
+  }
   let current;
-  let parked;
+
+  function controls() {
+    const { sending, checking, needsCheck, returnToList } = current;
+    $('identify-fields').disabled = sending || needsCheck;
+    $('identify-submit').disabled = sending || needsCheck;
+    $('identify-cancel').disabled = sending;
+    $('identify-cancel').textContent = returnToList ? 'К списку' : 'Отмена';
+    checkOutcome.hidden = !needsCheck || returnToList;
+    checkOutcome.disabled = checking;
+  }
 
   function values() {
     return Array.from(rows.children, row => ({
@@ -140,6 +146,7 @@ export function initIdentification(request, uuid, onSuccess) {
 
   function addRow(id, amount) {
     const row = $('distribution-row').content.firstElementChild.cloneNode(true);
+    decorateFormLabels(row);
     const input = row.querySelector('[name=beneficiaryId]');
     input.pattern = uuid.source;
     input.value = id;
@@ -161,34 +168,43 @@ export function initIdentification(request, uuid, onSuccess) {
     current?.abort.abort();
     current = undefined;
     if (dialog.open) dialog.close();
+    $('identify-summary').replaceChildren();
+    $('distribution-total').textContent = '';
+    $('distribution-left').textContent = '';
     rows.replaceChildren();
+    status(feedback, '');
+  }
+
+  function dismiss() {
+    const state = current;
+    if (!state || state.sending) return;
+    close();
+    if (state.returnToList) onResult(state.operationId, state.returnToList);
   }
 
   function open(item, total) {
     const operationId = item.operationId;
     if (current || completed.has(operationId)) return;
-    current = { operationId, total, currency: item.currency ?? item.operationCurrency ?? '', abort: new AbortController(), sending: false };
-    $('identify-operation').textContent = operationId;
-    $('identify-payment').textContent = [item.payerName, display(total, current.currency)].filter(Boolean).join(' · ');
-    $('identify-status').textContent = '';
-    $('identify-fields').disabled = false;
-    $('identify-submit').disabled = false;
-    $('identify-cancel').disabled = false;
-    if (parked?.operationId === operationId && parked.total === total) {
-      for (const row of parked.rows) addRow(row.beneficiaryId, row.amount);
-    } else {
-      addRow('', decimal(total).replace('.', ','));
-    }
-    parked = undefined;
+    current = {
+      operationId, total, currency: item.currency ?? item.operationCurrency ?? '',
+      abort: new AbortController(), needsCheck: uncertain.has(operationId),
+    };
+    const summary = $('identify-summary');
+    summary.replaceChildren(recordField('operationId', 'ID операции', operationId, { primary: true }),
+      recordField('amount', 'Сумма пополнения', display(total, current.currency)));
+    if (item.payerName) summary.append(recordField('payerName', 'Плательщик', item.payerName));
+    status(feedback, current.needsCheck ? 'Перед повтором проверьте пополнение по ID.' : '');
+    addRow('', decimal(total).replace('.', ','));
+    controls();
     dialog.showModal();
-    rows.querySelector('input').focus();
+    (current.needsCheck ? checkOutcome : rows.querySelector('input')).focus();
   }
 
   function buttonFor(item) {
     const total = minorUnits(item.amount ?? item.operationAmount);
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'secondary transaction-identify';
+    button.className = 'create-action';
     button.textContent = completed.has(item.operationId) ? 'Идентифицировано' : 'Идентифицировать';
     button.disabled = !uuid.test(item.operationId) || total === null || total <= 0n || completed.has(item.operationId);
     if (button.disabled && !completed.has(item.operationId)) button.title = 'Для распределения нужны ID операции и положительная сумма пополнения.';
@@ -202,19 +218,53 @@ export function initIdentification(request, uuid, onSuccess) {
   });
   rows.addEventListener('input', () => {
     for (const input of rows.querySelectorAll('input')) input.setCustomValidity('');
-    $('identify-status').textContent = '';
+    status(feedback, '');
     updateTotals();
   });
   dialog.addEventListener('cancel', event => {
     event.preventDefault();
-    if (!current?.sending) close();
+    dismiss();
   });
-  $('identify-cancel').addEventListener('click', close);
+  $('identify-cancel').addEventListener('click', dismiss);
+
+  checkOutcome.addEventListener('click', async () => {
+    const state = current;
+    if (!state?.needsCheck || state.checking || state.returnToList) return;
+    state.checking = true;
+    controls();
+    status(feedback, 'Ищем пополнение в актуальном списке…', 'loading');
+    try {
+      const item = await verify(state.operationId, state.abort.signal, count => {
+        status(feedback, 'Ищем пополнение… Проверено записей: ' + count + '.', 'loading');
+      });
+      if (state !== current) return;
+      if (!item) {
+        state.returnToList = 'Пополнение отсутствует в списке неидентифицированных. Сверьте распределение по ID операции и остаткам бенефициаров.';
+      } else if (minorUnits(item.amount ?? item.operationAmount) !== state.total ||
+        (item.currency ?? item.operationCurrency ?? '') !== state.currency) {
+        state.returnToList = 'Данные пополнения изменились. Откройте его заново из обновленного списка.';
+      } else {
+        uncertain.delete(state.operationId);
+        state.needsCheck = false;
+      }
+      status(feedback, state.returnToList ?? 'Пополнение всё ещё в списке. Проверьте распределение и повторите отправку.', 'warning');
+    } catch (error) {
+      if (state === current) status(feedback, 'Проверка пополнения не удалась. ' + error.message, 'error');
+    } finally {
+      if (state === current) {
+        state.checking = false;
+        controls();
+        if (state.returnToList) $('identify-cancel').focus();
+        else if (!state.needsCheck) rows.querySelector('input').focus();
+        else checkOutcome.focus();
+      }
+    }
+  });
 
   $('identify-form').addEventListener('submit', async event => {
     event.preventDefault();
     const state = current;
-    if (!state || state.sending) return;
+    if (!state || state.sending || state.needsCheck) return;
     const ids = new Set();
     const distribution = [];
     for (const row of rows.children) {
@@ -232,42 +282,43 @@ export function initIdentification(request, uuid, onSuccess) {
     }
     if (!$('identify-form').reportValidity()) return;
     if (distributed() !== state.total) {
-      $('identify-status').textContent = 'Сумма всех строк должна совпадать с суммой пополнения.';
+      status(feedback, 'Сумма всех строк должна совпадать с суммой пополнения.', 'error');
       return;
     }
 
     state.sending = true;
-    $('identify-fields').disabled = true;
-    $('identify-submit').disabled = true;
-    $('identify-cancel').disabled = true;
-    $('identify-status').textContent = 'Отправляем распределение…';
+    controls();
+    status(feedback, 'Отправляем распределение…', 'loading');
     try {
       await request('/incoming-transactions/' + state.operationId + '/identify', {
         method: 'POST', body: { amountDistribution: distribution }, signal: state.abort.signal,
       });
     } catch (error) {
-      if (state === current) $('identify-status').textContent = error.message;
+      if (state === current) {
+        state.needsCheck = !error.status || [404, 408, 409].includes(error.status) || error.status >= 500;
+        if (state.needsCheck) uncertain.add(state.operationId);
+        const advice = state.needsCheck ? ' Перед повтором проверьте пополнение по ID.' : '';
+        status(feedback, error.message + advice, 'error');
+      }
       return;
     } finally {
       if (state === current) {
         state.sending = false;
-        $('identify-fields').disabled = false;
-        $('identify-submit').disabled = false;
-        $('identify-cancel').disabled = false;
+        controls();
+        if (state.needsCheck) checkOutcome.focus();
       }
     }
     if (state !== current) return;
     completed.add(state.operationId);
     close();
-    onSuccess(state.operationId);
+    onResult(state.operationId);
   });
 
   return {
     buttonFor,
-    endSession(keepDraft) {
-      if (current && keepDraft) parked = { operationId: current.operationId, total: current.total, rows: values() };
-      if (!keepDraft) parked = undefined;
+    endSession() {
       completed.clear();
+      uncertain.clear();
       close();
     },
   };

@@ -5,7 +5,88 @@
     $port = 8765
     $authority = "127.0.0.1:$port"
     $origin = "http://$authority"
+    $trustedProxy = $env:TBANK_UI_TRUSTED_PROXY
+    $mockProxy = $env:TBANK_UI_MOCK_PROXY
+    if ($trustedProxy -and $mockProxy) {
+        throw 'Set only one of TBANK_UI_TRUSTED_PROXY and TBANK_UI_MOCK_PROXY.'
+    }
+
+    $canonicalPath = '(?:/[A-Za-z0-9_-]+)+'
+    $approvedOrigins = [ordered]@{}
+    $gatewayPaths = @{}
+    $nominalPaths = @{}
+    function Add-ProxyEnvironment($name, $value, $demo, $source, $nominalPath) {
+        $configuredUri = $null
+        if ($value -cnotmatch "\Ahttps?://[^/?#\\\s]+(?:$canonicalPath)?/?\z" -or
+            -not [Uri]::TryCreate($value, [UriKind]::Absolute, [ref]$configuredUri) -or
+            $configuredUri.UserInfo -or $configuredUri.Query -or $configuredUri.Fragment -or
+            ($demo -and ($configuredUri.Scheme -cne 'http' -or $configuredUri.Host -cne '127.0.0.1' -or $configuredUri.Port -eq $port)) -or
+            (!$demo -and ($configuredUri.Scheme -cne 'https' -or $configuredUri.Host -match '(^|\.)(tbank\.ru|tinkoff\.ru|t-bank-app\.ru)\.?$'))) {
+            if ($demo) { throw 'Set an HTTP mock address on 127.0.0.1 with a separate port and no query parameters.' }
+            throw "Set a trusted HTTPS origin in $source. Use a canonical gateway path and omit query parameters."
+        }
+        if (!$nominalPath) { $nominalPath = '/api/v1/nominal-accounts' }
+        if ($nominalPath -cnotmatch "\A$canonicalPath\z") { throw "Invalid nominal accounts path in $source." }
+        $approvedOrigins[$name] = $configuredUri.GetLeftPart([UriPartial]::Authority)
+        $gatewayPaths[$name] = $configuredUri.AbsolutePath.TrimEnd('/')
+        $nominalPaths[$name] = $nominalPath
+    }
+
+    $proxySource = 'proxy.cfg'
+    if ($mockProxy) {
+        $proxySource = 'TBANK_UI_MOCK_PROXY'
+        Add-ProxyEnvironment 'mock' $mockProxy $true $proxySource
+    } elseif ($trustedProxy) {
+        $proxySource = 'TBANK_UI_TRUSTED_PROXY'
+        Add-ProxyEnvironment 'custom' $trustedProxy $false $proxySource
+    } else {
+        $appDirectory = Split-Path -Parent $env:TBANK_UI_DIST
+        $proxyFile = Join-Path $appDirectory $proxySource
+        $legacyFile = Join-Path $appDirectory 'proxy-origin.txt'
+        if (Test-Path -LiteralPath $proxyFile -PathType Leaf) {
+            $settings = @{}
+            $lineNumber = 0
+            foreach ($line in [IO.File]::ReadAllLines($proxyFile, [Text.Encoding]::UTF8)) {
+                $lineNumber++
+                if ($line -match '^\s*(?:[#;]|$)') { continue }
+                if ($line -notmatch '^\s*((?:dev|stage|prod)(?:\.prefix)?)\s*=\s*(.*)$') {
+                    throw "Invalid proxy.cfg line $lineNumber. Use dev, stage, prod or their .prefix settings."
+                }
+                $name = $Matches[1].ToLowerInvariant()
+                $value = $Matches[2].Trim()
+                if ($settings.ContainsKey($name)) { throw "Duplicate environment '$name' in proxy.cfg." }
+                $settings[$name] = $value
+            }
+            foreach ($name in @('dev', 'stage', 'prod')) {
+                if ($settings[$name]) {
+                    Add-ProxyEnvironment $name $settings[$name] $false "proxy.cfg ($name)" $settings["$name.prefix"]
+                } elseif ($settings["$name.prefix"]) {
+                    throw "Set an address for '$name' before configuring its .prefix."
+                }
+            }
+        } elseif (Test-Path -LiteralPath $legacyFile -PathType Leaf) {
+            $proxySource = 'proxy-origin.txt'
+            $value = [IO.File]::ReadAllText($legacyFile, [Text.Encoding]::UTF8).Trim()
+            Add-ProxyEnvironment 'custom' $value $false $proxySource
+        }
+    }
     $runId = [Guid]::NewGuid().ToString('N')
+    $idPart = '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'
+    $beneficiary = "/beneficiaries/$idPart"
+    $accounts = "$beneficiary/bank-details"
+    $deal = "/deals/$idPart"
+    $steps = "$deal/steps"
+    $step = "$steps/$idPart"
+    $deponent = "$step/deponents/$idPart"
+    $recipients = "$step/recipients"
+    $recipient = "$recipients/$idPart"
+    $nominalRoutes = @{
+        GET = "\A(?:/beneficiaries|$beneficiary|$accounts(?:/$idPart)?|/incoming-transactions|/payments(?:/$idPart)?|/virtual-accounts/(?:balances|holds|transfers(?:/$idPart)?)|/deals|$deal(?:/is-valid)?|$steps|$step|$step/deponents|$deponent|$recipients|$recipient)\z"
+        POST = "\A(?:/beneficiaries|$accounts(?:/$idPart/set-default)?|/incoming-transactions/$idPart/identify|/payments(?:/$idPart/retry)?|/virtual-accounts/transfers|/deals|$deal/(?:accept|draft|cancel)|$steps|$step/complete|$recipients|$recipient/update-bank-details)\z"
+        PUT = "\A(?:$beneficiary|$accounts/$idPart|$step|$deponent|$recipient)\z"
+        DELETE = "\A(?:$accounts/$idPart|$deal|$step|$deponent|$recipient)\z"
+    }
+    $keyedPosts = "\A(?:/beneficiaries|$accounts|/payments|/virtual-accounts/transfers|/deals|$steps|$recipients)\z"
     $crlf = [string][char]13 + [char]10
     $maxHeader = 16384
     $maxBody = 262144
@@ -13,6 +94,7 @@
     $securityHeaders = @(
         'Connection: close',
         'Cache-Control: no-store',
+        "X-TBank-Run: $runId",
         'X-Content-Type-Options: nosniff',
         'Referrer-Policy: no-referrer',
         "Content-Security-Policy: default-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
@@ -61,19 +143,13 @@
         $path = $Matches[2]
         if ($path.StartsWith('/api/relay/', [StringComparison]::Ordinal)) {
             $query = $Matches[3]
-            $idPart = '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'
-            $beneficiary = "(?:/[^/?#]+)*/beneficiaries/$idPart"
-            $accounts = "$beneficiary/bank-details"
-            $identify = "/api/relay(?:/[^/?#]+)*/incoming-transactions/$idPart/identify"
-            $allowed = switch -CaseSensitive ($method) {
-                'GET'    { $true }
-                'POST'   { $path -cmatch "^(?:/api/relay(?:/[^/?#]+)*/beneficiaries|/api/relay$accounts(?:/$idPart/set-default)?|$identify)$" }
-                'PUT'    { $path -cmatch "^/api/relay(?:$beneficiary|$accounts/$idPart)$" }
-                'DELETE' { $path -cmatch "^/api/relay$accounts/$idPart$" }
-                default  { $false }
-            }
-            if (-not $allowed) {
+            if ($method -cnotin @('GET', 'POST', 'PUT', 'DELETE')) {
                 Send-Json $stream '405 Method Not Allowed' @{ message = 'Unsupported API method.' }
+                return $true
+            }
+            $targetPath = $path.Substring('/api/relay'.Length)
+            if ($targetPath -cnotmatch "\A$canonicalPath\z") {
+                Send-Json $stream '400 Bad Request' @{ message = 'Invalid API path.' }
                 return $true
             }
             $requestOrigin = Get-Header $lines 'Origin'
@@ -92,7 +168,8 @@
             }
             $connection.Headers = $lines
             $connection.Method = $method
-            $connection.TargetPath = $path.Substring('/api/relay'.Length) + $query
+            $connection.TargetPath = $targetPath
+            $connection.Query = $query
             $connection.BodyOffset = $bodyOffset
             $connection.BodyLength = [int]$length
             return $false
@@ -112,6 +189,7 @@
     function Start-Upstream($connection) {
         $stream = $connection.Stream
         $proxyOrigin = Get-Header $connection.Headers 'X-TBank-Proxy-Origin'
+        $environment = Get-Header $connection.Headers 'X-TBank-Environment'
         $base = $null
         $target = $null
         $authorization = Get-Header $connection.Headers 'Authorization'
@@ -120,14 +198,37 @@
         $uuidPattern = '^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$'
         if (!$proxyOrigin -or -not [Uri]::TryCreate($proxyOrigin, [UriKind]::Absolute, [ref]$base) -or
             $base.UserInfo -or $base.GetLeftPart([UriPartial]::Authority) -cne $proxyOrigin -or
-            -not [Uri]::TryCreate(($proxyOrigin + $connection.TargetPath), [UriKind]::Absolute, [ref]$target) -or
+            -not [Uri]::TryCreate(($proxyOrigin + $connection.TargetPath + $connection.Query), [UriKind]::Absolute, [ref]$target) -or
             $target.GetLeftPart([UriPartial]::Authority) -cne $proxyOrigin -or
+            $target.AbsolutePath -cne $connection.TargetPath -or
             ($target.Scheme -ne 'https' -and ($target.Scheme -ne 'http' -or $target.Host -cne '127.0.0.1')) -or
             $target.UserInfo -or $target.Fragment -or $target.GetLeftPart([UriPartial]::Authority) -ceq $origin -or
             $target.Host -match '(^|\.)(tbank\.ru|tinkoff\.ru|t-bank-app\.ru)\.?$' -or
             $authorization -cnotmatch '^Bearer [A-Za-z0-9._~+/-]+=*$' -or
             ($account -and $account -notmatch $uuidPattern) -or ($key -and $key -notmatch $uuidPattern)) {
             Send-Json $stream '400 Bad Request' @{ message = 'Invalid API URL, method or headers.' }
+            return $true
+        }
+        if (!$environment -or !$approvedOrigins.Contains($environment) -or $proxyOrigin -cne $approvedOrigins[$environment]) {
+            Send-Json $stream '403 Forbidden' @{ message = 'Proxy origin is not approved for the selected environment.' }
+            return $true
+        }
+        $gateway = $gatewayPaths[$environment]
+        $nominal = $nominalPaths[$environment]
+        $nominalBase = $gateway + $nominal
+        $route = if ($target.AbsolutePath.StartsWith($nominalBase + '/', [StringComparison]::Ordinal)) {
+            $target.AbsolutePath.Substring($nominalBase.Length)
+        } else { '' }
+        $scoringBase = $gateway + ($nominal -creplace '/v1/nominal-accounts\z', '/v2/nominal-accounts')
+        $specialRead = $connection.Method -ceq 'GET' -and
+            ($target.AbsolutePath -ceq "$gateway/api/v1/statement" -or
+             $target.AbsolutePath -ceq "$scoringBase/beneficiaries/scoring")
+        if (!$specialRead -and $route -cnotmatch $nominalRoutes[$connection.Method]) {
+            Send-Json $stream '405 Method Not Allowed' @{ message = 'Unsupported API operation.' }
+            return $true
+        }
+        if ($connection.Method -ceq 'POST' -and $route -cmatch $keyedPosts -and !$key) {
+            Send-Json $stream '400 Bad Request' @{ message = 'Idempotency-Key is required for this operation.' }
             return $true
         }
         if (@($connections | Where-Object { $_.Exchange }).Count -ge 8) {
@@ -222,8 +323,28 @@
     }
 
     $routes.Add('/health', @{ Body = [Text.Encoding]::ASCII.GetBytes($runId); Type = 'text/plain' })
-    Add-Asset '/' 'index.html' 'text/html'
+    $index = [IO.File]::ReadAllText((Join-Path $env:TBANK_UI_DIST 'index.html'), [Text.Encoding]::UTF8)
+    $proxyConfiguration = ConvertTo-Json -InputObject @{
+        source = $proxySource; origins = $approvedOrigins; paths = $gatewayPaths; prefixes = $nominalPaths
+    } -Compress
+    $index = $index.Replace('__TBANK_PROXY_ENVIRONMENTS__', [Security.SecurityElement]::Escape($proxyConfiguration))
+    $routes.Add('/', @{
+        Body = [Text.Encoding]::UTF8.GetBytes($index.Replace('__TBANK_RUN_ID__', $runId))
+        Type = 'text/html'
+    })
     Add-Asset '/identify.js' 'identify.js' 'text/javascript'
+    Add-Asset '/amount.js' 'amount.js' 'text/javascript'
+    Add-Asset '/billing.js' 'billing.js' 'text/javascript'
+    Add-Asset '/dashboard.js' 'dashboard.js' 'text/javascript'
+    Add-Asset '/dashboard-data.js' 'dashboard-data.js' 'text/javascript'
+    Add-Asset '/copy-id.js' 'copy-id.js' 'text/javascript'
+    Add-Asset '/pagination.js' 'pagination.js' 'text/javascript'
+    Add-Asset '/transfers.js' 'transfers.js' 'text/javascript'
+    Add-Asset '/statement.js' 'statement.js' 'text/javascript'
+    Add-Asset '/statement-calendar.js' 'statement-calendar.js' 'text/javascript'
+    Add-Asset '/record-details.js' 'record-details.js' 'text/javascript'
+    Add-Asset '/deals.js' 'deals.js' 'text/javascript'
+    Add-Asset '/step-parties.js' 'step-parties.js' 'text/javascript'
     Add-Asset '/app.js' 'app.js' 'text/javascript'
     Add-Asset '/entity-editor.js' 'entity-editor.js' 'text/javascript'
     Add-Asset '/beneficiaries.js' 'beneficiaries.js' 'text/javascript'

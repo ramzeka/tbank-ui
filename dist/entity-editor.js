@@ -1,4 +1,5 @@
 import { addressFields, bankFields, beneficiaryFields, beneficiaryTypes, documentFields, documentTypes, validateBeneficiary } from './beneficiary-schema.js';
+import { fieldCaption } from './record-details.js';
 
 const $ = id => document.getElementById(id);
 
@@ -26,7 +27,8 @@ function choice(values, value, placeholder = 'Выберите вариант') 
 
 function fields(container, descriptors, initial = {}) {
   const controls = descriptors.map((field) => {
-    const label = element('label', field.label + (field.required ? ' *' : ''));
+    const label = element('label');
+    label.append(fieldCaption(field.label + (field.required ? ' *' : ''), field.key));
     let control;
     if (field.choices || field.type === 'boolean') {
       control = choice(field.choices ?? { true: 'Да', false: 'Нет' },
@@ -80,7 +82,8 @@ function collectionFields(title, values, addText, renderRow) {
 }
 
 function documentRow(row, initial, suggested) {
-  const label = element('label', 'Тип документа *');
+  const label = element('label');
+  label.append(fieldCaption('Тип документа *', 'type'));
   const select = choice(documentTypes, initial.type ?? suggested);
   select.required = true;
   select.name = 'documentType';
@@ -123,7 +126,8 @@ export function createEditor(kind, record, owner) {
     selector = choice(beneficiaryTypes, type, 'Выберите тип бенефициара');
     selector.name = 'type';
     selector.required = true;
-    const label = element('label', 'Тип бенефициара *');
+    const label = element('label');
+    label.append(fieldCaption('Тип бенефициара *', 'type'));
     label.append(selector);
     host.append(label);
   }
@@ -178,7 +182,7 @@ export function createEditor(kind, record, owner) {
     render(type === record?.type ? record : {});
   });
   const initialSnapshot = snapshot();
-  return { isBank, record, read: () => readData(), dirty: () => snapshot() !== initialSnapshot, keys: new Map() };
+  return { isBank, record, read: () => readData(), dirty: () => snapshot() !== initialSnapshot };
 }
 
 export function showFieldErrors(details) {
@@ -197,7 +201,7 @@ export function showFieldErrors(details) {
     }
     controls.set(path.toLowerCase(), input);
   }
-  const messages = new Map();
+  const invalidControls = new Set();
   function visit(value, key) {
     if (Array.isArray(value)) {
       value.forEach((child, index) => visit(child, typeof child === 'string' ? key : key + '.' + index));
@@ -206,16 +210,16 @@ export function showFieldErrors(details) {
     } else if (typeof value === 'string') {
       const path = key.toLowerCase().replace(/\[(\d+)\]/g, '.$1').replace(/^(?:\$\.|body\.)+/, '');
       const control = controls.get(path);
-      if (control) messages.set(control, [...(messages.get(control) ?? []), value]);
+      if (control) invalidControls.add(control);
     }
   }
   visit(details, '');
-  for (const [input, errors] of messages) {
-    const label = element('small', errors.join(' '), 'field-error');
+  for (const input of invalidControls) {
+    const label = element('small', 'Проверьте значение поля.', 'field-error');
     label.id = 'error-' + Array.from(controls.values()).indexOf(input);
     input.setAttribute('aria-invalid', 'true');
     input.setAttribute('aria-describedby', label.id);
     input.after(label);
   }
-  messages.keys().next().value?.focus();
+  return invalidControls.values().next().value;
 }

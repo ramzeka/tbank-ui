@@ -2,3 +2,5 @@
 .env
 .env.*
 *.log
+/proxy-origin.txt
+/proxy.cfg

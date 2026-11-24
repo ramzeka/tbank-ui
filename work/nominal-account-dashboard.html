@@ -1,0 +1,320 @@
+<div id="nominal-account-dashboard" class="viz-carousel" lang="ru" aria-label="Варианты главной страницы номинального счёта" data-previous-label="Предыдущий вариант" data-next-label="Следующий вариант">
+  <section class="nac-variant" data-variant="Деньги и операции" aria-label="Деньги и операции" data-view="finance"></section>
+  <section class="nac-variant" data-variant="Операционный контроль" aria-label="Операционный контроль" data-view="operations" hidden></section>
+</div>
+
+<style>
+  #nominal-account-dashboard .nac-variant {
+    color-scheme: dark;
+    --bg: #171716;
+    --chrome: #1c1c1a;
+    --panel: #21211f;
+    --border: #3b3a32;
+    --grid: #37362e;
+    --text: #f5f3ea;
+    --muted: #bdb9aa;
+    --yellow: #ffde59;
+    --mint: #83e1bd;
+    --red: #ffb8bd;
+    --debit: #a69d82;
+    font: 13px/1.4 Inter, 'Segoe UI', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 15px;
+    min-height: 662px;
+  }
+  #nominal-account-dashboard .nac-variant[hidden] { display: none !important; }
+  #nominal-account-dashboard .nac-variant *, #nominal-account-dashboard .nac-variant *::before { box-sizing: border-box; }
+  #nominal-account-dashboard .nac-variant :is(h2, h3, p, figure) { margin: 0; }
+  #nominal-account-dashboard .nac-variant button { font: inherit; color: inherit; }
+  #nominal-account-dashboard .nac-variant button:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+  #nominal-account-dashboard .nac-chrome {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px;
+    padding: 11px 16px; background: var(--chrome); border-bottom: 1px solid var(--border); border-radius: 14px 14px 0 0;
+  }
+  #nominal-account-dashboard .nac-brand { display: flex; align-items: center; gap: 9px; font-weight: 650; }
+  #nominal-account-dashboard .nac-brand b {
+    display: grid; place-items: center; width: 28px; height: 28px; background: var(--yellow); color: #222013; border-radius: 8px; font-size: 17px;
+  }
+  #nominal-account-dashboard .nac-demo { color: var(--muted); font-size: 11px; }
+  #nominal-account-dashboard .nac-shell { display: grid; grid-template-columns: 143px minmax(0, 1fr); }
+  #nominal-account-dashboard .nac-nav { border-right: 1px solid var(--border); padding: 18px 9px; }
+  #nominal-account-dashboard .nac-nav span { display: block; padding: 7px 8px; border: 1px solid transparent; color: var(--muted); }
+  #nominal-account-dashboard .nac-nav span[aria-current] { color: var(--yellow); border-color: #5f502a; background: #37301e; border-radius: 8px; font-weight: 600; }
+  #nominal-account-dashboard .nac-main { min-width: 0; padding: 17px 17px 18px; display: grid; align-content: start; gap: 11px; }
+  #nominal-account-dashboard .nac-page-head { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 9px 12px; }
+  #nominal-account-dashboard .nac-account { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+  #nominal-account-dashboard .nac-page-head h2 { color: var(--text); font: 680 clamp(23px, 3vw, 31px)/1.08 Inter, 'Segoe UI', sans-serif; letter-spacing: -.035em; }
+  #nominal-account-dashboard .nac-segments { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; }
+  #nominal-account-dashboard .nac-segments button {
+    border: 0; background: transparent; border-radius: 6px; padding: 4px 8px; min-height: 26px; font-size: 11px; white-space: nowrap; color: var(--muted);
+  }
+  #nominal-account-dashboard .nac-segments button[aria-pressed="true"] { color: #222013; background: var(--yellow); font-weight: 650; }
+  #nominal-account-dashboard .nac-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+  #nominal-account-dashboard .nac-panel { min-width: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 11px; }
+  #nominal-account-dashboard .nac-stat { padding: 10px 11px; }
+  #nominal-account-dashboard .nac-stat:first-child { border-color: #6c5a2d; background: linear-gradient(115deg, #342d1c, var(--panel) 88%); }
+  #nominal-account-dashboard .nac-stat-label { color: var(--muted); font-size: 11px; }
+  #nominal-account-dashboard .nac-value { display: block; margin: 3px 0; font-size: clamp(17px, 2.45vw, 27px); font-weight: 690; line-height: 1.18; letter-spacing: -.04em; }
+  #nominal-account-dashboard .nac-stat:first-child .nac-value { color: var(--yellow); }
+  #nominal-account-dashboard .nac-note { color: var(--muted); font-size: 11px; }
+  #nominal-account-dashboard .nac-note.nac-positive, #nominal-account-dashboard .nac-positive { color: var(--mint); }
+  #nominal-account-dashboard .nac-note.nac-negative { color: var(--red); }
+  #nominal-account-dashboard .nac-figures { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 9px; }
+  #nominal-account-dashboard .nac-figures[data-equal] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #nominal-account-dashboard .nac-figure { padding: 11px; }
+  #nominal-account-dashboard .nac-title { color: var(--text); font: 650 14px/1.25 Inter, 'Segoe UI', sans-serif; }
+  #nominal-account-dashboard .nac-figure figcaption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 3px 9px; }
+  #nominal-account-dashboard .nac-legend { display: flex; flex-wrap: wrap; gap: 4px 11px; color: var(--muted); font-size: 11px; }
+  #nominal-account-dashboard .nac-legend span { display: inline-flex; align-items: center; gap: 4px; }
+  #nominal-account-dashboard .nac-legend i { width: 8px; height: 8px; border-radius: 2px; }
+  #nominal-account-dashboard .nac-credit { background: var(--mint); }
+  #nominal-account-dashboard .nac-debit { background: var(--debit); }
+  #nominal-account-dashboard .nac-labeled-chart { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 7px; align-items: stretch; margin: 14px 0 6px; }
+  #nominal-account-dashboard .nac-axis { display: flex; flex-direction: column; justify-content: space-between; color: var(--muted); font-size: 11px; line-height: 1; text-align: right; }
+  #nominal-account-dashboard .nac-plot {
+    min-width: 0; position: relative; height: 109px; border-bottom: 1px solid var(--grid);
+    background-image: repeating-linear-gradient(to top, transparent 0 calc(33.333% - 1px), var(--grid) calc(33.333% - 1px) 33.333%);
+  }
+  #nominal-account-dashboard .nac-columns { display: grid; height: 100%; grid-template-columns: repeat(var(--buckets), minmax(0, 1fr)); gap: 2px; }
+  #nominal-account-dashboard .nac-column {
+    min-width: 0; border: 0; border-radius: 4px 4px 0 0; padding: 0 2px; position: relative;
+    display: flex; align-items: end; justify-content: center; gap: 3px; background: transparent;
+  }
+  #nominal-account-dashboard .nac-column:hover, #nominal-account-dashboard .nac-column[aria-pressed="true"] { background-color: #ffffff0d; }
+  #nominal-account-dashboard .nac-column i { display: block; width: 27%; max-width: 23px; height: var(--height); border-radius: 3px 3px 0 0; }
+  #nominal-account-dashboard .nac-ticks { grid-column: 2; display: grid; grid-template-columns: repeat(var(--buckets), minmax(0, 1fr)); gap: 2px; margin-top: 5px; color: var(--muted); text-align: center; font-size: 11px; }
+  #nominal-account-dashboard .nac-line-ticks { display: flex; justify-content: space-between; }
+  #nominal-account-dashboard .nac-line { inset: 0; position: absolute; width: 100%; height: 100%; overflow: visible; }
+  #nominal-account-dashboard .nac-chart-note { min-height: 29px; color: var(--muted); font-size: 11px; }
+  #nominal-account-dashboard .nac-chart-note b { color: var(--text); font-weight: 650; }
+  #nominal-account-dashboard .nac-table-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 9px; padding: 10px 11px 7px; }
+  #nominal-account-dashboard .nac-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+  #nominal-account-dashboard .nac-table :is(th, td) { padding: 7px 10px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+  #nominal-account-dashboard .nac-table th { color: var(--muted); background: #2b2921; font-size: 11px; font-weight: 600; }
+  #nominal-account-dashboard .nac-table tbody tr:last-child td { border-bottom: 0; }
+  #nominal-account-dashboard .nac-table tbody tr:last-child td:first-child { border-radius: 0 0 0 10px; }
+  #nominal-account-dashboard .nac-table tbody tr:last-child td:last-child { border-radius: 0 0 10px 0; }
+  #nominal-account-dashboard .nac-table td:nth-child(2) { font-weight: 600; }
+  #nominal-account-dashboard .nac-table :is(th, td):last-child { text-align: right; white-space: nowrap; }
+  #nominal-account-dashboard .nac-tag { display: inline-block; padding: 2px 6px; border-radius: 5px; font-size: 11px; background: #42371d; color: var(--yellow); }
+  #nominal-account-dashboard .nac-table td.nac-error { color: var(--red); }
+  #nominal-account-dashboard .nac-distribution { display: grid; gap: 8px; margin-top: 9px; }
+  #nominal-account-dashboard .nac-distribution-row { display: grid; grid-template-columns: minmax(78px, 1.15fr) minmax(28px, 1fr) 24px; gap: 6px; align-items: center; font-size: 11px; }
+  #nominal-account-dashboard .nac-distribution-row b { text-align: right; }
+  #nominal-account-dashboard .nac-track { height: 6px; border-radius: 4px; background: var(--grid); }
+  #nominal-account-dashboard .nac-track span { display: block; height: 100%; border-radius: inherit; background: var(--yellow); }
+  #nominal-account-dashboard .nac-oldest .nac-track span { background: #e9a774; }
+  #nominal-account-dashboard .nac-deals .nac-track span { background: var(--mint); }
+  #nominal-account-dashboard .nac-table-foot { padding: 6px 11px 9px; color: var(--muted); font-size: 11px; }
+  @media (max-width: 760px) {
+    #nominal-account-dashboard .nac-shell { grid-template-columns: 119px minmax(0, 1fr); }
+    #nominal-account-dashboard .nac-nav { font-size: 11px; }
+    #nominal-account-dashboard .nac-main { padding: 12px; }
+    #nominal-account-dashboard .nac-ticks:not(.nac-line-ticks) span:nth-child(even):not(:last-child) { visibility: hidden; }
+  }
+  @media (max-width: 630px) {
+    #nominal-account-dashboard .nac-shell { display: block; }
+    #nominal-account-dashboard .nac-nav { display: none; }
+    #nominal-account-dashboard .nac-main { padding: 12px; }
+  }
+  @media (max-width: 465px) {
+    #nominal-account-dashboard .nac-figures, #nominal-account-dashboard .nac-figures[data-equal] { grid-template-columns: minmax(0, 1fr); }
+    #nominal-account-dashboard .nac-value { font-size: 16px; }
+    #nominal-account-dashboard .nac-stat { padding-inline: 7px; }
+    #nominal-account-dashboard .nac-stat-label { min-height: 31px; }
+    #nominal-account-dashboard .nac-table :is(th, td) { padding-inline: 6px; }
+    #nominal-account-dashboard .nac-table .nac-purpose { display: none; }
+    #nominal-account-dashboard .nac-table .nac-party { display: block; color: var(--muted); font-size: 11px; }
+    #nominal-account-dashboard .nac-variant { min-height: 875px; }
+  }
+  @media (min-width: 466px) {
+    #nominal-account-dashboard .nac-table .nac-party { display: none; }
+  }
+  @media (pointer: coarse) {
+    #nominal-account-dashboard .nac-segments button { min-height: 44px; }
+  }
+</style>
+
+<script>
+(() => {
+  const root = document.getElementById('nominal-account-dashboard');
+  const finance = root.querySelector('[data-view="finance"]');
+  const operations = root.querySelector('[data-view="operations"]');
+  const integer = new Intl.NumberFormat('ru-RU');
+  const plural = new Intl.PluralRules('ru-RU');
+  const amount = value => integer.format(value) + ' ₽';
+  const signed = value => (value < 0 ? '−' : '+') + amount(Math.abs(value));
+  const date = (day, month) => day + ' ' + ({ 10: 'окт', 11: 'ноя' })[month];
+  const totals = (rows, key) => rows.reduce((sum, row) => sum + row[key], 0);
+
+  const openingBalance = 4120000;
+  const credits = [220, 105, 166, 150, 390, 210, 110, 320, 195, 250, 290, 115, 205, 302, 355, 180, 410, 324, 190, 215, 120, 270, 290, 204, 175, 280, 93, 308, 142, 280];
+  const debits = [85, 160, 122, 190, 225, 175, 380, 140, 225, 164, 190, 210, 98, 260, 242, 186, 177, 158, 215, 152, 272, 165, 145, 130, 106, 160, 115, 226, 154, 198];
+  let balance = openingBalance;
+  const daily = credits.map((credit, index) => {
+    const debit = debits[index];
+    balance += (credit - debit) * 1000;
+    return { date: index < 6 ? date(26 + index, 10) : date(index - 5, 11), credit: credit * 1000, debit: debit * 1000, balance };
+  });
+  const recent = [
+    ['12:31', 'ООО «Меридиан»', 'Оплата по договору № 48', 184500],
+    ['11:46', 'ООО «Фактор»', 'Выплата по этапу сделки', -96300],
+    ['10:18', 'ИП Волкова', 'Пополнение счёта', 62800],
+    ['09:04', 'ООО «Атлас»', 'Выплата по этапу сделки', -41900],
+  ];
+  const incoming = [
+    { name: 'ООО «Север»', day: 18, time: '16:40', amount: 86000 },
+    { name: 'ООО «Орбита»', day: 20, time: '11:15', amount: 67500 },
+    { name: 'ИП Лебедева', day: 21, time: '09:20', amount: 24000 },
+    { name: 'ООО «Вектор»', day: 21, time: '15:02', amount: 18400 },
+    { name: 'ООО «Ритм»', day: 22, time: '12:14', amount: 15100 },
+    { name: 'ИП Соколова', day: 23, time: '13:24', amount: 12800 },
+    { name: 'ООО «Маяк»', day: 24, time: '09:24', amount: 11000 },
+    { name: 'ООО «Гранит»', day: 24, time: '10:22', amount: 12000 },
+  ];
+  const failed = [
+    { name: 'ООО «Линия»', id: '…b91f', issue: 'Требуется уточнить реквизиты', amount: 54000 },
+    { name: 'ИП Крылова', id: '…6a7d', issue: 'Банк получателя отклонил платёж', amount: 24000 },
+    { name: 'ООО «Контур»', id: '…e83c', issue: 'Получатель не найден', amount: 14400 },
+  ];
+  const deals = [['Подтверждены', 18], ['В процессе', 6]];
+
+  function segmented(label, options, active, key) {
+    return `<div class="nac-segments" role="group" aria-label="${label}">${options.map(([value, title]) =>
+      `<button type="button" data-${key}="${value}" aria-pressed="${value === active}">${title}</button>`).join('')}</div>`;
+  }
+
+  function shell(title, time, control = '') {
+    return `<header class="nac-chrome"><div class="nac-brand"><b aria-hidden="true">Т</b>Т-Банк UI <span aria-hidden="true">·</span> Номинальные счета</div><span class="nac-demo">Демоданные</span></header>
+      <div class="nac-shell"><nav class="nac-nav" aria-label="Разделы приложения"><span aria-current="page">Обзор</span><span>Бенефициары</span><span>Пополнения</span><span>Платежи</span><span>Переводы</span><span>Сделки и этапы</span><span>Выписка по счёту</span></nav>
+        <div class="nac-main"><header class="nac-page-head"><div><p class="nac-account">Номинальный счёт •• 0123 · ${time}</p><h2>${title}</h2></div>${control}</header><div data-stats class="nac-stats" aria-live="polite"></div><div data-content style="display:contents"></div></div></div>`;
+  }
+
+  function stat(label, value, detail, tone = '') {
+    return `<div class="nac-panel nac-stat"><p class="nac-stat-label">${label}</p><strong class="nac-value">${value}</strong><p class="nac-note ${tone}">${detail}</p></div>`;
+  }
+
+  function chartFrame(axis, plot, ticks, line = false) {
+    return `<div class="nac-labeled-chart"><div aria-hidden="true" class="nac-axis">${axis.map(value => `<span>${value}</span>`).join('')}</div>
+      <div class="nac-plot">${plot}</div><div class="nac-ticks ${line ? 'nac-line-ticks' : ''}" style="--buckets:${ticks.length}" aria-hidden="true">${ticks.map(tick => `<span>${tick}</span>`).join('')}</div></div>`;
+  }
+
+  function drawFinance(days) {
+    const rows = daily.slice(-days);
+    const firstBalance = daily.at(-days - 1)?.balance ?? openingBalance;
+    const closing = rows.at(-1).balance;
+    const credit = totals(rows, 'credit');
+    const debit = totals(rows, 'debit');
+    finance.querySelector('[data-stats]').innerHTML = [
+      stat('Остаток на 24 ноя', amount(closing), `${signed(closing - firstBalance)} за период`, 'nac-positive'),
+      stat('Поступления', amount(credit), `С ${rows[0].date} по 24 ноя`),
+      stat('Списания', amount(debit), `С ${rows[0].date} по 24 ноя`),
+    ].join('');
+    const bucketSize = days === 7 ? 1 : 5;
+    const buckets = [];
+    for (let index = 0; index < rows.length; index += bucketSize) {
+      const batch = rows.slice(index, index + bucketSize);
+      buckets.push({
+        start: batch[0].date,
+        label: bucketSize === 1 ? batch[0].date : `${batch[0].date} — ${batch.at(-1).date}`,
+        credit: totals(batch, 'credit'), debit: totals(batch, 'debit'),
+      });
+    }
+    const step = bucketSize === 1 ? 150000 : 500000;
+    const max = 3 * step;
+    const columns = `<div role="group" aria-label="Поступления и списания по интервалам, рубли" class="nac-columns" style="--buckets:${buckets.length}">${buckets.map((bucket, index) => {
+      const accessible = `${bucket.label}. Поступления ${amount(bucket.credit)}. Списания ${amount(bucket.debit)}.`;
+      return `<button type="button" class="nac-column" data-bucket="${index}" aria-label="${accessible}" data-tooltip="${accessible}" aria-pressed="${index === buckets.length - 1}">
+        <i aria-hidden="true" class="nac-credit" style="--height:${100 * bucket.credit / max}%"></i><i aria-hidden="true" class="nac-debit" style="--height:${100 * bucket.debit / max}%"></i></button>`;
+    }).join('')}</div>`;
+    const ticks = buckets.map(bucket => bucket.start);
+    const values = [firstBalance, ...rows.map(row => row.balance)];
+    const minBalance = 4000000;
+    const maxBalance = 5800000;
+    const points = values.map((value, index) => `${1 + 298 * index / (values.length - 1)},${107 - 105 * (value - minBalance) / (maxBalance - minBalance)}`);
+    const line = `<svg class="nac-line" viewBox="0 0 300 109" preserveAspectRatio="none" role="img" aria-label="Остаток по дням. На начало ${amount(firstBalance)}, на конец ${amount(closing)}">
+      <polygon points="1,109 ${points.join(' ')} 299,109" fill="var(--yellow)" opacity=".12"/>
+      <polyline points="${points.join(' ')}" stroke="var(--yellow)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" fill="none"/>
+    </svg>`;
+    finance.querySelector('[data-content]').innerHTML = `<div class="nac-figures">
+      <figure class="nac-panel nac-figure"><figcaption><h3 class="nac-title">Движение денег</h3><div class="nac-legend"><span><i class="nac-credit"></i>Поступления</span><span><i class="nac-debit"></i>Списания</span></div></figcaption>
+        <p class="nac-note">${bucketSize === 1 ? 'По дням' : 'По 5 дней'} · тыс. ₽</p>
+        ${chartFrame([3, 2, 1, 0].map(multiplier => integer.format(multiplier * step / 1000)), columns, ticks)}
+        <p class="nac-chart-note" data-bucket-note aria-live="polite"></p></figure>
+      <figure class="nac-panel nac-figure"><figcaption><h3 class="nac-title">Остаток по дням</h3></figcaption><p class="nac-note">На конец дня · млн ₽</p>
+        ${chartFrame(['5,8', '5,2', '4,6', '4,0'], line, [days === 7 ? '17 ноя' : '25 окт', '24 ноя'], true)}
+        <p class="nac-chart-note"><b>${amount(firstBalance)}</b> на начало периода</p></figure></div>
+      <section class="nac-panel" aria-label="Последние операции"><div class="nac-table-head"><h3 class="nac-title">Последние операции</h3><span class="nac-note">24 ноя · МСК</span></div>
+        <table class="nac-table"><thead><tr><th scope="col">Время</th><th scope="col">Контрагент</th><th scope="col" class="nac-purpose">Назначение</th><th scope="col">Сумма</th></tr></thead>
+        <tbody>${recent.map(([time, party, purpose, value]) => `<tr><td>${time}</td><td>${party}</td><td class="nac-purpose">${purpose}</td><td class="${value > 0 ? 'nac-positive' : ''}">${signed(value)}</td></tr>`).join('')}</tbody></table></section>`;
+    const note = finance.querySelector('[data-bucket-note]');
+    const buttons = [...finance.querySelectorAll('[data-bucket]')];
+    function selectBucket(index) {
+      const bucket = buckets[index];
+      buttons.forEach((button, position) => button.setAttribute('aria-pressed', String(index === position)));
+      note.innerHTML = `<b>${bucket.label}</b> · ${signed(bucket.credit)} / ${signed(-bucket.debit)}`;
+    }
+    selectBucket(buckets.length - 1);
+    buttons.forEach((button, index) => button.addEventListener('click', () => selectBucket(index)));
+  }
+
+  function distribution(title, subtitle, items, options = {}) {
+    const { className = '', oldestIndex = -1 } = options;
+    const max = Math.max(...items.map(([, count]) => count));
+    return `<figure class="nac-panel nac-figure ${className}"><figcaption><h3 class="nac-title">${title}</h3><span class="nac-note">${subtitle}</span></figcaption>
+      <div class="nac-distribution" role="group" aria-label="${title}, количество">${items.map(([label, count], index) => `<div class="nac-distribution-row ${index === oldestIndex ? 'nac-oldest' : ''}">
+        <span>${label}</span><div class="nac-track" aria-hidden="true"><span style="width:${100 * count / max}%"></span></div><b>${count}</b></div>`).join('')}</div></figure>`;
+  }
+
+  function drawQueue(kind) {
+    const isIncoming = kind === 'incoming';
+    const table = operations.querySelector('[data-queue-table]');
+    const headers = isIncoming ? ['Дата · МСК', 'Плательщик', 'Без идентификации', 'Сумма'] : ['ID платежа', 'Получатель', 'Ошибка по данным банка', 'Сумма'];
+    const rows = isIncoming ? incoming.slice(0, 4).map(item => ({
+      ref: `${item.day} ноя · ${item.time}`, name: item.name, age: 24 - item.day, amount: item.amount,
+    })) : failed.map(item => ({ ...item, ref: item.id }));
+    table.setAttribute('aria-label', isIncoming ? 'Старейшие неидентифицированные пополнения' : 'Неуспешные попытки выплат');
+    table.innerHTML = `<thead><tr>${headers.map((label, index) => `<th scope="col"${index === 2 ? ' class="nac-purpose"' : ''}>${label}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(({ ref, name, age, issue, amount: value }) => {
+        const status = isIncoming ? `${age} ${{ one: 'день', few: 'дня', many: 'дней' }[plural.select(age)]}` : issue;
+        return `<tr><td>${ref}</td><td>${name}<span class="nac-party">${status}</span></td><td class="nac-purpose${isIncoming ? '' : ' nac-error'}">${isIncoming ? `<span class="nac-tag">${status}</span>` : status}</td><td>${amount(value)}</td></tr>`;
+      }).join('')}</tbody>`;
+    operations.querySelector('[data-queue-info]').textContent = isIncoming ? `Показаны 4 старейших из ${incoming.length}` : `Показаны все ${failed.length} попытки`;
+  }
+
+  function markPressed(area, button, attribute) {
+    area.querySelectorAll(`[${attribute}]`).forEach(candidate => candidate.setAttribute('aria-pressed', String(candidate === button)));
+  }
+
+  finance.innerHTML = shell('Обзор счёта', '24 ноя 2026', segmented('Период выписки', [['7', '7 дней'], ['30', '30 дней']], '30', 'period'));
+  drawFinance(30);
+  finance.querySelectorAll('[data-period]').forEach(button => button.addEventListener('click', () => {
+    markPressed(finance, button, 'data-period');
+    drawFinance(Number(button.dataset.period));
+  }));
+
+  operations.innerHTML = shell('Операционный контроль', '24 ноя 2026 · 13:00 МСК');
+  operations.querySelector('[data-stats]').innerHTML = [
+    stat('Без идентификации', integer.format(incoming.length), amount(totals(incoming, 'amount')) + ' в пополнениях'),
+    stat('Неуспешные попытки выплат', integer.format(failed.length), amount(totals(failed, 'amount')) + ' по этим попыткам', 'nac-negative'),
+    stat('Сделки в работе', integer.format(deals.reduce((sum, [, count]) => sum + count, 0)), 'Подтверждены или в процессе'),
+  ].join('');
+  const ages = [['0–1 день', 0], ['2–3 дня', 0], ['4 дня и более', 0]];
+  incoming.forEach(item => {
+    const age = 24 - item.day;
+    ages[age < 2 ? 0 : age < 4 ? 1 : 2][1] += 1;
+  });
+  operations.querySelector('[data-content]').innerHTML = `<section class="nac-panel" aria-label="Очередь операций"><div class="nac-table-head"><h3 class="nac-title">Очередь операций</h3>
+      ${segmented('Тип операции', [['incoming', `Пополнения · ${incoming.length}`], ['failed', `Ошибки выплат · ${failed.length}`]], 'incoming', 'queue')}</div>
+      <table class="nac-table" data-queue-table></table><p class="nac-table-foot" data-queue-info aria-live="polite"></p></section>
+    <div class="nac-figures" data-equal>${distribution('Возраст пополнений', 'календарные дни', ages, { oldestIndex: 2 })}${distribution('Сделки в работе', 'количество', deals, { className: 'nac-deals' })}</div>`;
+  drawQueue('incoming');
+  operations.querySelectorAll('[data-queue]').forEach(button => button.addEventListener('click', () => {
+    markPressed(operations, button, 'data-queue');
+    drawQueue(button.dataset.queue);
+  }));
+})();
+</script>

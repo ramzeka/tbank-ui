@@ -1,4 +1,6 @@
 import { createEditor, showFieldErrors } from './entity-editor.js';
+import { appendCopyId } from './copy-id.js';
+import { fieldCaption, insertExpandedRow, isIdField, recordDetails, recordField, tableCell, tableHeaders } from './record-details.js';
 import {
   addressFields, addressTypes, bankFields, bankTypes, beneficiaryFields, beneficiaryTypes, documentFields, documentTypes,
 } from './beneficiary-schema.js';
@@ -8,10 +10,11 @@ const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const collection = '/beneficiaries';
 const bankLimit = 50;
 const balanceLimit = 50;
+export const scoringPath = collection + '/scoring';
 
-export function beneficiaryName(record) {
-  return record.name || [record.lastName, record.firstName, record.middleName].filter(Boolean).join(' ') ||
-    beneficiaryTypes[record.type] || 'Бенефициар';
+export function beneficiaryName(record, fallback = beneficiaryTypes[record.type] || 'Бенефициар') {
+  return String(record.name ?? '').trim() || [record.lastName, record.firstName, record.middleName]
+    .map(value => String(value ?? '').trim()).filter(Boolean).join(' ') || fallback;
 }
 
 function decodeEnvelope(value) {
@@ -116,6 +119,12 @@ export async function fetchBeneficiary(request, id, signal) {
   return record;
 }
 
+export function setDisclosure(toggle, content, expanded) {
+  content.hidden = !expanded;
+  toggle.setAttribute('aria-expanded', String(expanded));
+  toggle.querySelector('.disclosure-label').textContent = expanded ? 'Свернуть' : 'Развернуть';
+}
+
 function textValue(value) {
   if (value == null || value === '') return '—';
   if (typeof value === 'boolean') return value ? 'Да' : 'Нет';
@@ -123,11 +132,11 @@ function textValue(value) {
 }
 
 function detailFields(record, fields, typeLabel) {
-  const grid = element('dl', '', 'detail-grid');
+  const grid = element('dl', '', 'record-fields standalone-fields');
   for (const { key, label } of fields) {
     const value = key === 'type' && typeLabel ? typeLabel : record[key];
     if (value == null || value === '') continue;
-    grid.append(element('dt', label), element('dd', textValue(value)));
+    grid.append(recordField(key, label, textValue(value)));
   }
   return grid;
 }
@@ -155,6 +164,8 @@ const balanceLabels = new Map(Object.entries({
   beneficiaryId: 'ID бенефициара', virtualAccountId: 'ID виртуального счёта',
   balance: 'Баланс', amount: 'Сумма', currency: 'Валюта', availableAmount: 'Доступно',
   availableBalance: 'Доступный остаток', heldAmount: 'Зарезервировано',
+  holdId: 'ID холда', holdAmount: 'Сумма холда', dealId: 'ID сделки', stepId: 'ID этапа',
+  status: 'Статус', type: 'Тип', createdAt: 'Дата создания',
 }));
 
 function balanceValue(value) {
@@ -165,13 +176,13 @@ function balanceValue(value) {
   return textValue(value);
 }
 
-export async function fetchBalancePage(request, beneficiaryId, offset, signal) {
+export async function fetchBalancePage(request, beneficiaryId, offset, signal, kind = 'balances') {
   const query = { beneficiaryId, offset, limit: balanceLimit };
-  const data = await request('/virtual-accounts/balances', { query, signal });
+  const data = await request('/virtual-accounts/' + kind, { query, signal });
   signal.throwIfAborted();
-  const { rows, total } = listPage(data, ['balances'], ['beneficiaryId', 'balance', 'amount', 'accountNumber']);
+  const { rows, total } = listPage(data, [kind], ['beneficiaryId', 'balance', 'amount', 'holdAmount', 'holdId', 'accountNumber']);
   if (rows.some(row => row.beneficiaryId != null && String(row.beneficiaryId).toLowerCase() !== beneficiaryId.toLowerCase())) {
-    throw new Error('В ответе есть остатки другого бенефициара. Проверьте фильтр прокси.');
+    throw new Error('В ответе есть записи другого бенефициара. Проверьте фильтр прокси.');
   }
   const hasMore = rows.length > 0 && (total == null ? rows.length === balanceLimit : offset + rows.length < total);
   return { rows, hasMore };
@@ -181,37 +192,119 @@ export function balanceTable(rows, { hideBeneficiaryId = false } = {}) {
   const table = element('table');
   const keys = new Set(rows.flatMap(row => Object.keys(row)));
   if (hideBeneficiaryId && keys.size > 1) keys.delete('beneficiaryId');
-  const columns = [...keys];
-  const head = table.createTHead().insertRow();
-  for (const key of columns) {
-    const th = element('th', balanceLabels.get(key) ?? key);
-    th.scope = 'col';
-    head.append(th);
+  const columns = [];
+  for (const key of ['balance', 'availableBalance', 'availableAmount', 'heldAmount', 'amount', 'holdAmount', 'currency', 'accountNumber']) {
+    if (keys.delete(key)) columns.push(key);
   }
+  columns.push(...keys);
+  tableHeaders(table, columns.map(key => balanceLabels.get(key) ?? key));
   const body = table.createTBody();
   for (const row of rows) {
     const tr = body.insertRow();
-    for (const key of columns) tr.insertCell().textContent = balanceValue(row[key]);
+    for (const key of columns) {
+      const cell = tableCell(tr, balanceValue(row[key]));
+      if (isIdField(key)) {
+        cell.className = 'record-id';
+        appendCopyId(cell, row[key], balanceLabels.get(key) ?? key);
+      }
+    }
   }
   return table;
 }
 
-export function initBeneficiaries(request, refreshList) {
+const scoringStatuses = new Map([
+  ['SUCCEEDED', { title: 'Проверка пройдена', state: 'success' }],
+  ['FAILED', { title: 'Проверка не пройдена', state: 'error' }],
+  ['IN_PROGRESS', { title: 'Проверка выполняется', state: 'loading' }],
+  ['PENDING', { title: 'Проверка ожидается', state: 'loading' }],
+]);
+const scoringCodes = new Map([
+  ['INVALID_INN', 'Не подтверждены паспортные данные'],
+  ['INVALID_PASSPORT', 'Паспорт недействителен'],
+  ['IN_BLACKLIST', 'Бенефициар найден в чёрных списках'],
+  ['UL_CLOSED', 'Организация закрыта'],
+  ['UL_NOT_FOUND', 'Бенефициар не найден в ЕГРЮЛ'],
+]);
+function scoringIssues(title, state, codes) {
+  if (!Array.isArray(codes)) return null;
+  const list = element('ul');
+  for (const code of codes) {
+    if (typeof code !== 'string' || !code.trim()) continue;
+    const item = element('li');
+    const description = scoringCodes.get(code);
+    if (description) item.append(element('span', description));
+    item.append(element('code', code));
+    list.append(item);
+  }
+  if (!list.childElementCount) return null;
+  const group = element('div', '', 'notice-issues');
+  group.dataset.state = state;
+  const heading = element('h4');
+  heading.append(fieldCaption(title));
+  group.append(heading, list);
+  return group;
+}
+
+function scoringDetails(result) {
+  let code = typeof result.status === 'string' ? result.status.trim() : '';
+  if (code === 'PASSED' || (!code && result.passed === true)) code = 'SUCCEEDED';
+  if (!code && result.passed === false) code = 'FAILED';
+  const errors = scoringIssues('Ошибки', 'error', result.errors);
+  const warnings = scoringIssues('Предупреждения', 'warning', result.warnings);
+  const knownStatus = scoringStatuses.get(code);
+  const appearance = code === 'SUCCEEDED' && warnings
+    ? { title: 'Проверка пройдена с предупреждениями', state: 'warning' }
+    : knownStatus ?? { title: code ? 'Статус проверки неизвестен' : 'Статус проверки не указан', state: 'unknown' };
+
+  const card = element('div', '', 'notice');
+  card.dataset.state = appearance.state;
+  const summary = element('div', '', 'notice-summary');
+  summary.append(element('strong', appearance.title));
+  if (!knownStatus && code) summary.append(element('code', code));
+  card.append(summary);
+  if (errors || warnings) {
+    const details = element('div', '', 'notice-details');
+    if (errors) details.append(errors);
+    if (warnings) details.append(warnings);
+    card.append(details);
+  }
+  return card;
+}
+
+export function initBeneficiaries(request, refreshList, transfers) {
   let enabled = false;
   let active;
   let writing = false;
   let beneficiary;
   let returnFocus;
   let editor;
-  let suspended = false;
   let balanceOffset = 0;
   let moreBalances = false;
+  let holdsOffset = 0;
+  let moreHolds = false;
+  const bankRows = new Map();
+  let expandedBank;
+  const disclosure = (key, load) => ({ toggle: $(key + '-toggle'), content: $(key + '-content'), load, loaded: false });
+  const bankBlock = disclosure('bank', () => run('bank-availability', loadBank));
+  const fundsBlock = disclosure('funds', () => run('balance-status', loadVirtualAccounts));
+  const transferBlock = disclosure('beneficiary-transfers');
+  const blocks = [bankBlock, fundsBlock, transferBlock];
+
+  function loadOpenedBlock() {
+    if (!enabled || !beneficiary || active || editor) return;
+    const block = blocks.find(block => block.load && !block.content.hidden && !block.loaded);
+    if (!block) return;
+    block.loaded = true;
+    block.load();
+  }
 
   function controls() {
     const busy = !enabled || Boolean(active);
     for (const node of document.querySelectorAll('[data-beneficiary-action], #bank-list button')) node.disabled = busy;
     $('balance-prev').disabled = busy || !balanceOffset;
     $('balance-next').disabled = busy || !moreBalances;
+    $('holds-prev').disabled = busy || !holdsOffset;
+    $('holds-next').disabled = busy || !moreHolds;
     $('entity-fields').disabled = busy;
     $('entity-save').disabled = busy;
     $('entity-cancel').disabled = writing;
@@ -222,16 +315,19 @@ export function initBeneficiaries(request, refreshList) {
   function showScreen() {
     $('entity-editor').hidden = !editor;
     $('list-panel').hidden = Boolean(editor || beneficiary);
-    $('beneficiary-panel').hidden = Boolean(editor || !beneficiary);
-    $('bank-section').hidden = $('beneficiary-panel').hidden;
+    $('beneficiary-view').hidden = Boolean(editor || !beneficiary);
+    if (enabled && beneficiary && !editor) transfers.setBeneficiary(beneficiary);
     controls();
   }
 
   function resetEditor() {
     editor = undefined;
     $('entity-fields').replaceChildren();
+    $('entity-title').textContent = '';
+    $('entity-owner').textContent = '';
     status('entity-status', '');
     showScreen();
+    loadOpenedBlock();
   }
 
   function leaveEditor() {
@@ -245,31 +341,47 @@ export function initBeneficiaries(request, refreshList) {
     return true;
   }
 
+  function clearScoring() {
+    $('scoring-result').replaceChildren();
+    status('scoring-status', '');
+  }
+
   function close() {
     active?.abort();
     active = undefined;
     writing = false;
-    suspended = false;
     beneficiary = undefined;
     returnFocus = undefined;
+    transfers.reset();
+    for (const block of blocks) {
+      block.loaded = false;
+      setDisclosure(block.toggle, block.content, false);
+    }
     balanceOffset = 0;
     moreBalances = false;
     $('balance-pages').hidden = true;
-    $('balance-load').textContent = 'Показать баланс';
     $('balance-table').replaceChildren();
     status('balance-status', '');
-    $('bank-detail').hidden = true;
+    holdsOffset = 0;
+    moreHolds = false;
+    $('holds-pages').hidden = true;
+    $('holds-table').replaceChildren();
+    status('holds-status', '');
+    clearScoring();
+    closeBank();
+    bankRows.clear();
     $('bank-retry').hidden = true;
-    $('bank-id').value = '';
-    for (const id of ['beneficiary-data', 'bank-list', 'bank-data']) $(id).replaceChildren();
+    $('beneficiary-name').textContent = 'Карточка бенефициара';
+    $('beneficiary-type').textContent = '';
+    for (const id of ['beneficiary-data', 'bank-list']) $(id).replaceChildren();
     for (const id of ['beneficiary-status','beneficiary-feedback','bank-status','bank-availability']) status(id, '');
     resetEditor();
   }
 
   function setEnabled(value) {
-    if (enabled && !value && !suspended) close();
+    const wasEnabled = enabled;
     enabled = value;
-    if (enabled) suspended = false;
+    if (wasEnabled && !enabled) close();
     controls();
   }
 
@@ -280,18 +392,21 @@ export function initBeneficiaries(request, refreshList) {
     writing = mutation;
     status(statusId, mutation ? 'Отправляем запрос…' : 'Загружаем данные…', 'loading');
     controls();
+    let invalidField;
     try {
       await action(controller.signal);
     } catch (error) {
       if (!controller.signal.aborted) {
         status(statusId, error.message, 'error');
-        if (editor) showFieldErrors(error.details);
+        if (editor) invalidField = showFieldErrors(error.details);
       }
     } finally {
       if (active === controller) {
         active = undefined;
         writing = false;
         controls();
+        invalidField?.focus();
+        loadOpenedBlock();
       }
     }
   }
@@ -309,9 +424,19 @@ export function initBeneficiaries(request, refreshList) {
     beneficiary = record;
     $('beneficiary-name').textContent = beneficiaryName(record);
     $('beneficiary-type').textContent = beneficiaryTypes[record.type] ?? record.type ?? '';
-    $('beneficiary-data').replaceChildren(detailFields(record, [
+    const fields = [
       { key: 'beneficiaryId', label: 'ID бенефициара' }, ...(beneficiaryFields[record.type] ?? []),
-    ]));
+    ];
+    const values = Object.fromEntries(fields.flatMap(({ key }) =>
+      record[key] == null || record[key] === '' ? [] : [[key, textValue(record[key])]],
+    ));
+    const card = element('div', '', 'record-card');
+    const groups = [
+      { summary: true, keys: ['beneficiaryId', 'inn', 'registrationDate', 'birthDate'] },
+      { title: 'Данные бенефициара' },
+    ];
+    card.append(recordDetails(values, fields.map(({ key, label }) => [key, label]), 'beneficiaryId', groups));
+    $('beneficiary-data').replaceChildren(card);
     const addresses = itemGroup('Адреса', record.addresses, addressTypes, () => addressFields.filter(f => f.key !== 'type'));
     const documents = itemGroup('Документы', record.documents, documentTypes, item => documentFields[item.type] ?? []);
     if (addresses) $('beneficiary-data').append(addresses);
@@ -323,25 +448,56 @@ export function initBeneficiaries(request, refreshList) {
 
   const bankPath = () => collection + '/' + beneficiary.beneficiaryId + '/bank-details';
 
-  function displayBank(record) {
-    $('bank-id').value = record.bankDetailsId;
-    $('bank-record-title').textContent = 'Реквизиты · ' + (bankTypes[record.type] ?? record.type ?? '');
-    $('bank-data').replaceChildren(detailFields(record, [
-      { key: 'bankDetailsId', label: 'ID реквизитов' }, ...bankFields.PAYMENT_DETAILS,
-    ]));
-    $('bank-detail').hidden = false;
-    $('bank-record-title').focus();
+  function closeBank() {
+    if (!expandedBank) return;
+    expandedBank.trigger.setAttribute('aria-expanded', 'false');
+    expandedBank.trigger.removeAttribute('aria-controls');
+    expandedBank.row.remove();
+    expandedBank = undefined;
   }
 
-  function openBank(id, edit = false, trigger) {
+  function displayBank(record) {
+    const id = record.bankDetailsId.toLowerCase();
+    const target = bankRows.get(id);
+    if (!target) return;
+    closeBank();
+    const details = element('section', '', 'bank-detail');
+    details.id = 'bank-record-' + id;
+    const title = element('h3', 'Реквизиты · ' + (bankTypes[record.type] ?? record.type));
+    title.id = details.id + '-title';
+    title.tabIndex = -1;
+    details.setAttribute('aria-labelledby', title.id);
+    const actions = element('div', '', 'actions');
+    actions.append(button('Редактировать', event => startEditor('bank', record, event.currentTarget)));
+    if (!record.isDefault) actions.append(button('Сделать основными', () => changeBank(record, false)));
+    actions.append(button('Удалить', () => changeBank(record, true), 'danger'));
+    details.append(title, detailFields(record, [
+      { key: 'bankDetailsId', label: 'ID реквизитов' }, ...bankFields.PAYMENT_DETAILS,
+    ]), actions);
+    const row = insertExpandedRow(target.row, details);
+    target.trigger.setAttribute('aria-expanded', 'true');
+    target.trigger.setAttribute('aria-controls', details.id);
+    expandedBank = { id, row, trigger: target.trigger };
+    controls();
+    title.focus();
+  }
+
+  function openBank(id) {
+    if (!uuid.test(id) || active) return;
+    const isOpen = expandedBank?.id === id.toLowerCase();
+    closeBank();
+    if (isOpen) {
+      status('bank-status', '');
+      return;
+    }
     return run('bank-status', async signal => {
-      id = id.trim();
-      if (!uuid.test(id)) throw new Error('Введите ID реквизитов в формате UUID.');
       const record = recordObject(await request(bankPath() + '/' + id, { signal }), 'bankDetails');
       if (record.type !== 'PAYMENT_DETAILS') throw new Error('Для этого типа реквизитов операции недоступны.');
-      const full = { ...record, bankDetailsId: id };
-      if (edit) startEditor('bank', full, trigger);
-      else displayBank(full);
+      const returnedId = record.bankDetailsId ?? record.id;
+      if (returnedId != null && String(returnedId).toLowerCase() !== id.toLowerCase()) {
+        throw new Error('Прокси вернул данные других реквизитов.');
+      }
+      displayBank({ ...record, bankDetailsId: id });
       status('bank-status', '');
     });
   }
@@ -354,41 +510,31 @@ export function initBeneficiaries(request, refreshList) {
     run('bank-status', async signal => {
       const path = bankPath() + '/' + record.bankDetailsId;
       await request(deleting ? path : path + '/set-default', { method: deleting ? 'DELETE' : 'POST', signal });
-      $('bank-detail').hidden = true;
-      $('bank-data').replaceChildren();
-      $('bank-id').value = '';
       status('bank-status', deleting ? 'Реквизиты удалены.' : 'Основные реквизиты изменены.', 'success');
       await loadBank(signal);
+      const saved = bankRows.get(record.bankDetailsId.toLowerCase())?.record;
+      if (!deleting && saved) displayBank({ ...record, ...saved });
+      else if (!signal.aborted) $('bank-title').focus();
     }, true);
   }
 
   function bankTable(records) {
     const table = element('table');
-    const head = table.createTHead().insertRow();
-    for (const name of ['Тип', 'Счёт или получатель', 'Банк', 'По умолчанию', 'Действия']) {
-      const th = element('th', name);
-      th.scope = 'col';
-      head.append(th);
-    }
+    tableHeaders(table, ['Тип', 'Счёт или получатель', 'Банк', 'По умолчанию']);
     const body = table.createTBody();
     for (const record of records) {
       const row = body.insertRow();
-      row.insertCell().textContent = bankTypes[record.type] ?? record.type ?? '—';
-      const info = row.insertCell();
+      tableCell(row, bankTypes[record.type] ?? record.type);
       const label = record.accountNumber || record.name || record.bankDetailsId || '—';
       const supported = record.type === 'PAYMENT_DETAILS' && uuid.test(record.bankDetailsId);
-      if (supported) info.append(button(label, () => openBank(record.bankDetailsId), 'link'));
-      else info.textContent = '—';
-      row.insertCell().textContent = record.bankName || '—';
-      row.insertCell().textContent = record.isDefault ? 'Да' : '—';
-      const actionCell = row.insertCell();
-      if (!supported) continue;
-      const menu = element('details', '', 'row-actions');
-      menu.append(element('summary', 'Действия'));
-      menu.append(button('Редактировать', event => openBank(record.bankDetailsId, true, event.currentTarget)));
-      if (!record.isDefault) menu.append(button('Сделать основными', () => changeBank(record, false)));
-      menu.append(button('Удалить', () => changeBank(record, true), 'danger'));
-      actionCell.append(menu);
+      if (supported) {
+        const trigger = button(label, () => openBank(record.bankDetailsId), 'link');
+        trigger.setAttribute('aria-expanded', 'false');
+        tableCell(row, trigger);
+        bankRows.set(record.bankDetailsId.toLowerCase(), { row, trigger, record });
+      } else tableCell(row);
+      tableCell(row, record.bankName || null);
+      tableCell(row, record.isDefault ? 'Да' : null);
     }
     return table;
   }
@@ -396,6 +542,8 @@ export function initBeneficiaries(request, refreshList) {
     let offset = 0;
     const records = [];
     const ids = new Set();
+    closeBank();
+    bankRows.clear();
     $('bank-retry').hidden = true;
     $('bank-list').replaceChildren();
     status('bank-availability', 'Загружаем реквизиты…', 'loading');
@@ -412,7 +560,7 @@ export function initBeneficiaries(request, refreshList) {
         offset += rows.length;
         if (!rows.length || (total === undefined ? rows.length < bankLimit : offset >= total)) break;
       }
-      status('bank-availability', records.length ? '' : 'У бенефициара нет реквизитов.', 'success');
+      status('bank-availability', records.length ? '' : 'У бенефициара нет реквизитов.');
       if (records.length) $('bank-list').replaceChildren(bankTable(records));
       return records;
     } catch (error) {
@@ -424,19 +572,53 @@ export function initBeneficiaries(request, refreshList) {
   }
 
 
-  function loadBalances(offset) {
-    return run('balance-status', async signal => {
-      const beneficiaryId = beneficiary.beneficiaryId;
-      const { rows, hasMore } = await fetchBalancePage(request, beneficiaryId, offset, signal);
-      balanceOffset = offset;
-      moreBalances = hasMore;
-      $('balance-table').replaceChildren(...(rows.length ? [balanceTable(rows)] : []));
-      $('balance-pages').hidden = !(offset || moreBalances);
-      $('balance-load').textContent = 'Обновить баланс';
-      const message = rows.length ? 'Строки ' + (offset + 1) + '–' + (offset + rows.length) :
-        offset ? 'Больше записей нет.' : 'Данных об остатках нет.';
-      status('balance-status', message, 'success');
-    });
+  async function loadBalances(offset, signal) {
+    const { rows, hasMore } = await fetchBalancePage(request, beneficiary.beneficiaryId, offset, signal);
+    balanceOffset = offset;
+    moreBalances = hasMore;
+    $('balance-table').replaceChildren(...(rows.length ? [balanceTable(rows, { hideBeneficiaryId: true })] : []));
+    $('balance-pages').hidden = !(offset || moreBalances);
+    const message = offset ? 'Больше записей нет.' : 'Данных об остатках нет.';
+    status('balance-status', rows.length ? '' : message);
+  }
+
+  function refreshBalances(offset) {
+    return run('balance-status', signal => loadBalances(offset, signal));
+  }
+
+  async function loadHolds(offset, signal) {
+    const { rows, hasMore } = await fetchBalancePage(request, beneficiary.beneficiaryId, offset, signal, 'holds');
+    holdsOffset = offset;
+    moreHolds = hasMore;
+    $('holds-table').replaceChildren(...(rows.length ? [balanceTable(rows, { hideBeneficiaryId: true })] : []));
+    $('holds-pages').hidden = !(offset || moreHolds);
+    status('holds-status', rows.length ? '' : offset ? 'Больше записей нет.' : 'Холдов нет.');
+  }
+
+  function loadVirtualAccounts(signal) {
+    status('balance-status', 'Загружаем баланс…', 'loading');
+    status('holds-status', 'Загружаем холды…', 'loading');
+    return Promise.all([
+      loadBalances(0, signal).catch(error => {
+        if (!signal.aborted) status('balance-status', error.message, 'error');
+      }),
+      loadHolds(0, signal).catch(error => {
+        if (!signal.aborted) status('holds-status', error.message, 'error');
+      }),
+    ]);
+  }
+
+  async function loadScoring(signal) {
+    $('scoring-result').replaceChildren();
+    const { beneficiaryId } = beneficiary;
+    const data = await request(scoringPath, { query: { beneficiaryId }, signal });
+    signal.throwIfAborted();
+    const { rows } = listPage(data, ['scoringResults'], ['beneficiaryId', 'status', 'passed']);
+    if (rows.some(row => row.beneficiaryId != null && String(row.beneficiaryId).toLowerCase() !== beneficiaryId.toLowerCase())) {
+      throw new Error('Прокси вернул результат проверки другого бенефициара.');
+    }
+    $('scoring-result').replaceChildren(...rows.map(scoringDetails));
+    status('scoring-status', rows.length ? '' : 'Результат проверки пока недоступен.');
   }
 
   function open(id, trigger) {
@@ -449,33 +631,27 @@ export function initBeneficiaries(request, refreshList) {
       returnFocus = trigger;
       displayBeneficiary({ ...record, beneficiaryId: id });
       status('beneficiary-status', '');
-      await loadBank(signal);
     });
   }
 
   async function save(signal) {
-    const { isBank, record, keys } = editor;
+    const { isBank, record } = editor;
     showFieldErrors();
     const body = editor.read();
     const root = isBank ? bankPath() : collection;
     const id = isBank ? record?.bankDetailsId : record?.beneficiaryId;
-    const payload = JSON.stringify(body);
-    if (!record && !keys.has(payload)) keys.set(payload, crypto.randomUUID());
     const data = await request(id ? root + '/' + id : root, {
-      method: id ? 'PUT' : 'POST', body, key: keys.get(payload), signal,
+      method: id ? 'PUT' : 'POST', body, idempotent: !id, signal,
     });
     // The mutation succeeded. A failed follow-up read must not offer another creation.
     resetEditor();
     if (isBank) {
-      $('bank-detail').hidden = true;
-      $('bank-data').replaceChildren();
-      $('bank-id').value = '';
       const result = data ? optionalRecord(data, 'bankDetails') : null;
       const savedId = result?.bankDetailsId ?? result?.id ?? id;
       status('bank-status', record ? 'Реквизиты обновлены.' : 'Реквизиты добавлены.', 'success');
-      const rows = await loadBank(signal);
+      await loadBank(signal);
       signal.throwIfAborted();
-      const saved = rows?.find(row => row.bankDetailsId === savedId);
+      const saved = uuid.test(savedId) && bankRows.get(savedId.toLowerCase())?.record;
       if (saved) displayBank({ ...body, ...result, ...saved });
       return;
     }
@@ -486,6 +662,7 @@ export function initBeneficiaries(request, refreshList) {
       status('beneficiary-status', 'Банк подтвердил создание, но ответ не содержит ID. Найдите запись в обновлённом списке.', 'success');
       return;
     }
+    clearScoring();
     displayBeneficiary({ ...body, ...result, beneficiaryId: savedId });
     const message = record ? 'Данные бенефициара обновлены.' : 'Бенефициар создан.';
     status('beneficiary-feedback', message, 'success');
@@ -497,29 +674,35 @@ export function initBeneficiaries(request, refreshList) {
       if (!enabled) return;
       status('beneficiary-feedback', message + ' Не удалось обновить карточку. ' + error.message, 'error');
     }
-    await loadBank(signal);
+    await Promise.all([
+      bankBlock.content.hidden ? undefined : loadBank(signal),
+      fundsBlock.content.hidden ? undefined : loadVirtualAccounts(signal),
+    ]);
   }
 
   $('entity-form').addEventListener('submit', event => {
     event.preventDefault();
     if (editor) run('entity-status', save, true);
   });
+  for (const block of blocks) block.toggle.addEventListener('click', () => {
+    setDisclosure(block.toggle, block.content, block.content.hidden);
+    loadOpenedBlock();
+  });
   $('entity-cancel').addEventListener('click', leaveEditor);
   $('beneficiary-create').addEventListener('click', event => startEditor('beneficiary', null, event.currentTarget));
   $('beneficiary-edit').addEventListener('click', event => startEditor('beneficiary', beneficiary, event.currentTarget));
-  $('balance-load').addEventListener('click', () => loadBalances(0));
-  $('balance-prev').addEventListener('click', () => loadBalances(Math.max(0, balanceOffset - balanceLimit)));
-  $('balance-next').addEventListener('click', () => loadBalances(balanceOffset + balanceLimit));
+  $('balance-load').addEventListener('click', () => run('balance-status', loadVirtualAccounts));
+  $('balance-prev').addEventListener('click', () => refreshBalances(Math.max(0, balanceOffset - balanceLimit)));
+  $('balance-next').addEventListener('click', () => refreshBalances(balanceOffset + balanceLimit));
+  $('holds-prev').addEventListener('click', () => run('holds-status', signal => loadHolds(Math.max(0, holdsOffset - balanceLimit), signal)));
+  $('holds-next').addEventListener('click', () => run('holds-status', signal => loadHolds(holdsOffset + balanceLimit, signal)));
+  $('scoring-check').addEventListener('click', () => run('scoring-status', loadScoring));
   $('bank-create').addEventListener('click', event => startEditor('bank', null, event.currentTarget));
   $('bank-retry').addEventListener('click', () => run('bank-availability', loadBank));
   $('beneficiary-close').addEventListener('click', () => {
     const target = returnFocus?.isConnected ? returnFocus : $('results-title');
     close();
     target.focus();
-  });
-  $('bank-search').addEventListener('submit', event => {
-    event.preventDefault();
-    openBank($('bank-id').value);
   });
   window.addEventListener('beforeunload', event => {
     if (writing || editor?.dirty()) {
@@ -529,7 +712,6 @@ export function initBeneficiaries(request, refreshList) {
   });
   return {
     close, open, setEnabled, leaveEditor,
-    suspendDraft() { suspended = Boolean(editor); },
     get editing() { return Boolean(editor); },
   };
 }

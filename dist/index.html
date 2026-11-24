@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#141414">
+  <meta name="tbank-run" content="__TBANK_RUN_ID__">
+  <meta name="tbank-proxy-environments" content="__TBANK_PROXY_ENVIRONMENTS__">
   <title>Т-Банк UI | Номинальные счета</title>
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/app.js"></script>
@@ -23,61 +25,312 @@
       <div class="session">
         <span id="session-status" class="session-status" data-state="idle" role="status">Вход не выполнен</span>
         <span id="token-expiry" class="settings-status" hidden></span>
-        <a id="settings-link" class="settings-link" href="#connection-settings"><span aria-hidden="true">⚙</span> Настройки подключения</a>
+        <a id="settings-link" class="settings-link" href="#connection-settings"><span aria-hidden="true">⚙</span> Настройки подключения<span id="settings-environment"></span></a>
       </div>
     </div>
   </header>
-  <div class="shell layout">
+  <div id="app-layout" class="shell layout">
     <aside class="sidebar">
-      <nav aria-label="Разделы">
-        <button class="nav" type="button" data-section="beneficiaries" aria-current="true"><span class="nav-icon person" aria-hidden="true"></span>Бенефициары и реквизиты</button>
-        <p class="nav-group">Биллинг</p>
-        <button class="nav" type="button" data-section="incoming-transactions"><span class="nav-icon file" aria-hidden="true"></span>Пополнения</button>
+      <nav id="app-navigation" aria-label="Разделы">
+        <div class="nav-group">
+          <button class="nav" type="button" data-section="dashboard" aria-current="true" aria-label="Обзор счёта" title="Обзор счёта">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 4v16h16M8 15v-3m5 3V8m5 7v-5"/></svg>
+            <span class="nav-label">Обзор счёта</span>
+          </button>
+        </div>
+        <div class="nav-group" role="group" aria-labelledby="nav-participants">
+          <p id="nav-participants" class="nav-group-title">Участники</p>
+          <button class="nav" type="button" data-section="beneficiaries" aria-label="Бенефициары" title="Бенефициары">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="7.5" r="3.5"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/></svg>
+            <span class="nav-label">Бенефициары</span>
+          </button>
+        </div>
+        <div class="nav-group" role="group" aria-labelledby="nav-billing">
+          <p id="nav-billing" class="nav-group-title">Биллинг</p>
+          <button class="nav" type="button" data-section="incoming-transactions" aria-label="Пополнения" title="Пополнения">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v10m-4-4 4 4 4-4M4 14v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></svg>
+            <span class="nav-label">Пополнения</span>
+          </button>
+          <button class="nav" type="button" data-section="payments" aria-label="Платежи" title="Платежи">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18m-14 5h4"/></svg>
+            <span class="nav-label">Платежи</span>
+          </button>
+          <button class="nav" type="button" data-section="transfers" aria-label="Переводы" title="Переводы">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 8h16m-4-4 4 4-4 4m4 4H4m4-4-4 4 4 4"/></svg>
+            <span class="nav-label">Переводы</span>
+          </button>
+        </div>
+        <div class="nav-group" role="group" aria-labelledby="nav-deals">
+          <p id="nav-deals" class="nav-group-title">Сделки</p>
+          <button class="nav" type="button" data-section="deals" aria-label="Сделки и этапы" title="Сделки и этапы">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V4h6v3M3 12h18m-9 0v3"/></svg>
+            <span class="nav-label">Сделки и этапы</span>
+          </button>
+        </div>
+        <div class="nav-group" role="group" aria-labelledby="nav-statements">
+          <p id="nav-statements" class="nav-group-title">Выписки</p>
+          <button class="nav" type="button" data-section="statement" aria-label="Выписка по счёту" title="Выписка по счёту">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 3h9l5 5v13H5zM14 3v6h5M8 13h8m-8 4h8"/></svg>
+            <span class="nav-label">Выписка по счёту</span>
+          </button>
+        </div>
       </nav>
+      <button id="navigation-toggle" class="secondary navigation-toggle" type="button" aria-label="Свернуть меню" title="Свернуть меню" aria-expanded="true" aria-controls="app-navigation">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path class="navigation-chevron" d="m16 9-3 3 3 3"/></svg>
+      </button>
     </aside>
     <main id="workspace" tabindex="-1">
-      <div id="data-view">
+      <div id="data-view" data-section="dashboard">
           <div class="intro">
             <div>
-              <h1 id="section-title" tabindex="-1">Бенефициары и реквизиты</h1>
-              <p id="section-description">Список бенефициаров, карточки и банковские реквизиты.</p>
+              <h1 id="section-title" tabindex="-1">Обзор счёта</h1>
+              <p id="section-description" hidden></p>
             </div>
           </div>
-          <div class="data-area">
+          <section id="dashboard-panel" class="dashboard" aria-labelledby="section-title">
+            <div class="dashboard-toolbar">
+              <div class="dashboard-segments" role="tablist" aria-label="Обзор счёта">
+                <button type="button" id="dashboard-finance-tab" role="tab" data-view="finance" aria-controls="dashboard-finance" aria-selected="true">Деньги и операции</button>
+                <button type="button" id="dashboard-operations-tab" role="tab" data-view="operations" aria-controls="dashboard-operations" aria-selected="false" tabindex="-1">Операционный контроль</button>
+              </div>
+              <div class="dashboard-actions">
+                <span class="dashboard-note" data-dashboard="account" hidden></span>
+                <div class="dashboard-segments" role="group" aria-label="Период обзора" data-dashboard="periods" hidden>
+                  <button type="button" data-period="7" aria-pressed="false">7 дней</button>
+                  <button type="button" data-period="30" aria-pressed="true">30 дней</button>
+                </div>
+                <button type="button" class="secondary" data-dashboard="refresh" disabled>Обновить</button>
+              </div>
+            </div>
+            <p class="dashboard-card dashboard-status" data-dashboard="status" role="status">Войдите в настройках подключения, чтобы загрузить обзор.</p>
+            <div id="dashboard-finance" class="dashboard-view" data-dashboard="finance" role="tabpanel" aria-labelledby="dashboard-finance-tab">
+              <div class="dashboard-view" data-dashboard="finance-content" aria-live="polite" hidden></div>
+            </div>
+            <div id="dashboard-operations" class="dashboard-view" data-dashboard="operations" role="tabpanel" aria-labelledby="dashboard-operations-tab" hidden>
+              <div class="dashboard-view" data-dashboard="operations-content" hidden>
+                <div class="dashboard-stats" data-dashboard="operations-stats" aria-live="polite"></div>
+                <section class="dashboard-card dashboard-panel" aria-labelledby="dashboard-queue-title">
+                  <div class="dashboard-panel-heading">
+                    <h2 id="dashboard-queue-title">Пополнения и ошибки выплат</h2>
+                    <button type="button" class="link" data-dashboard="queue-link" hidden></button>
+                  </div>
+                  <div class="dashboard-segments" role="group" aria-label="Тип операции">
+                    <button type="button" data-queue="incoming" aria-pressed="true">Пополнения</button>
+                    <button type="button" data-queue="payments" aria-pressed="false">Ошибки выплат</button>
+                  </div>
+                  <div data-dashboard="queue-content" aria-live="polite"></div>
+                </section>
+                <div class="dashboard-figures dashboard-figures-equal">
+                  <figure class="dashboard-card dashboard-panel">
+                    <figcaption class="dashboard-panel-heading"><h2>Возраст пополнений</h2><span class="dashboard-note">Календарные дни</span></figcaption>
+                    <div data-dashboard="age"></div>
+                  </figure>
+                  <figure class="dashboard-card dashboard-panel">
+                    <figcaption class="dashboard-panel-heading"><h2>Сделки в работе</h2></figcaption>
+                    <div data-dashboard="deals"></div>
+                  </figure>
+                </div>
+              </div>
+            </div>
+          </section>
+          <div class="data-area" id="section-data" hidden>
             <section id="list-panel" class="panel content results" aria-labelledby="results-title">
               <div class="panel-heading">
                 <h2 id="results-title" tabindex="-1">Бенефициары</h2>
                 <div class="actions">
+                  <button id="billing-filter-button" type="button" class="secondary" aria-haspopup="dialog" aria-controls="billing-filters-dialog" hidden>Фильтры <span id="billing-filter-count" hidden></span></button>
                   <button id="refresh" type="button" class="secondary" disabled>Обновить</button>
+                  <button id="billing-create" type="button" class="create-action" hidden>Создать</button>
                   <button id="beneficiary-create" type="button" class="create-action" data-beneficiary-action hidden>Создать бенефициара</button>
+                  <button id="deal-create" type="button" class="create-action" data-deal-control hidden>Создать сделку</button>
                 </div>
               </div>
-              <p id="request-status" class="status" data-state="idle" role="status">Откройте настройки подключения и войдите, чтобы загрузить данные.</p>
-              <p id="identify-feedback" role="status" class="inline-status"></p>
+              <p id="request-status" class="notice notice-message" data-state="idle" role="status">Откройте настройки подключения и войдите, чтобы загрузить данные.</p>
+              <p id="identify-feedback" class="notice notice-message" role="status"></p>
+              <p id="deal-list-feedback" class="notice notice-message" role="status"></p>
+              <p id="billing-list-feedback" class="notice notice-message" role="status"></p>
               <div class="results-table">
-                <form id="detail-form" class="beneficiary-search" hidden>
+                <form id="detail-form" class="id-search" hidden>
                   <label for="item-id">ID бенефициара</label>
                   <input id="item-id" placeholder="UUID" spellcheck="false" required data-beneficiary-action>
                   <button type="submit" class="secondary" data-beneficiary-action>Открыть</button>
-                  <p id="beneficiary-status" class="inline-status" role="status"></p>
+                  <p id="beneficiary-status" class="notice notice-message" role="status"></p>
                 </form>
-                <span class="sr-only" id="copy-status" role="status"></span>
+                <form id="deal-search" class="id-search" hidden>
+                  <label for="deal-search-id">ID сделки</label>
+                  <input id="deal-search-id" placeholder="UUID" spellcheck="false" required data-deal-control>
+                  <button type="submit" class="secondary" data-deal-control>Открыть</button>
+                  <p id="deal-search-status" class="notice notice-message" role="status"></p>
+                </form>
+                <form id="transaction-search" class="id-search" hidden>
+                  <label for="transaction-search-id">ID пополнения</label>
+                  <input id="transaction-search-id" placeholder="UUID" spellcheck="false" required>
+                  <button id="transaction-search-open" type="submit" class="secondary">Открыть</button>
+                  <button id="transaction-search-cancel" type="button" class="secondary" hidden>Отменить поиск</button>
+                  <p id="transaction-search-status" class="notice notice-message" role="status"></p>
+                </form>
+                <form id="payment-search" class="id-search" hidden>
+                  <label for="payment-search-id">ID платежа</label>
+                  <input id="payment-search-id" placeholder="UUID" spellcheck="false" required>
+                  <button id="payment-search-open" type="submit" class="secondary">Открыть</button>
+                  <p id="payment-search-status" class="notice notice-message" role="status"></p>
+                </form>
+                <form id="transfer-search" class="id-search" hidden>
+                  <label for="transfer-search-id">ID перевода</label>
+                  <input id="transfer-search-id" placeholder="UUID" spellcheck="false" required>
+                  <button type="submit" class="secondary">Открыть</button>
+                  <p id="transfer-search-status" class="notice notice-message" role="status"></p>
+                </form>
                 <div id="result" class="table-scroll"></div>
               </div>
-              <div id="pagination" class="actions pagination" hidden>
-                <label for="limit">Строк на странице
-                  <select id="limit"></select>
+              <div id="pagination" class="pagination" hidden></div>
+            </section>
+            <section id="statement-panel" class="panel content" aria-label="Операции по счёту" hidden>
+              <form id="statement-form" autocomplete="off">
+                <fieldset id="statement-fields" class="statement-fields" disabled>
+                  <label>Номер счёта
+                    <input name="accountNumber" inputmode="numeric" pattern="[0-9]{20}" maxlength="20" placeholder="20 цифр" required>
+                  </label>
+                  <label>Период (МСК)
+                    <select name="period">
+                      <option value="today">Сегодня</option>
+                      <option value="week">Последние 7 дней</option>
+                      <option value="month" selected>Последний месяц</option>
+                      <option value="previous-month">Прошлый календарный месяц</option>
+                      <option value="custom">Произвольный период</option>
+                    </select>
+                  </label>
+                  <div>
+                    <label for="statement-from">Дата, время (начало)</label>
+                    <div class="statement-datetime">
+                      <input id="statement-from" name="from" type="datetime-local" required>
+                      <button class="secondary date-picker-button" type="button" data-date-for="statement-from" aria-label="Выбрать начало периода" aria-haspopup="dialog" aria-controls="statement-calendar"><span aria-hidden="true">▦</span></button>
+                    </div>
+                  </div>
+                  <div>
+                    <label for="statement-to">Дата, время (конец)</label>
+                    <div class="statement-datetime">
+                      <input id="statement-to" name="to" type="datetime-local">
+                      <button class="secondary date-picker-button" type="button" data-date-for="statement-to" aria-label="Выбрать конец периода" aria-haspopup="dialog" aria-controls="statement-calendar"><span aria-hidden="true">▦</span></button>
+                    </div>
+                  </div>
+                  <button id="statement-extra-toggle" class="secondary statement-extra-toggle" type="button" aria-expanded="false" aria-controls="statement-extra">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    Дополнительные фильтры
+                  </button>
+                  <div id="statement-extra" class="statement-fields statement-extra" hidden>
+                    <label>Статус операции
+                      <select name="operationStatus">
+                        <option value="">Все операции</option>
+                        <option value="Authorization">Только авторизации</option>
+                        <option value="Transaction">Только транзакции</option>
+                      </select>
+                    </label>
+                    <label>UCID карты <input name="ucid" inputmode="numeric" maxlength="19"></label>
+                    <label>Категории операций <input name="categories" placeholder="Коды через запятую"></label>
+                    <label>ИНН контрагентов <input name="inns" placeholder="ИНН через запятую"></label>
+                    <label class="statement-checkbox"><input name="withBalances" type="checkbox"> Показать балансы за период</label>
+                  </div>
+                  <button type="submit" class="create-action statement-submit">Получить выписку</button>
+                </fieldset>
+              </form>
+              <p id="statement-status" class="notice notice-message" role="status"></p>
+              <details id="statement-balances" class="raw-details" hidden>
+                <summary>Балансы за период</summary>
+                <div id="statement-balance-data"></div>
+              </details>
+              <div id="statement-result" class="table-scroll"></div>
+              <div id="statement-pages" class="pagination" hidden>
+                <span id="statement-summary" class="page-summary" role="status"></span>
+                <label>Строк на странице
+                  <select id="statement-limit"><option>10</option><option>25</option><option selected>50</option><option>100</option><option>500</option><option>1000</option><option>5000</option></select>
                 </label>
+                <nav class="page-navigation" aria-label="Страницы выписки">
+                  <button id="statement-prev" class="secondary" type="button">Назад</button>
+                  <button id="statement-next" class="secondary" type="button">Далее</button>
+                </nav>
+              </div>
+            </section>
+            <section id="transaction-panel" class="panel content beneficiary-panel" aria-labelledby="transaction-title" hidden>
+              <div class="panel-heading">
+                <h2 id="transaction-title" tabindex="-1">Пополнение</h2>
+                <button id="transaction-back" type="button" class="secondary">К списку</button>
+              </div>
+              <div id="transaction-data" class="record-card"></div>
+              <div id="transaction-actions" class="actions"></div>
+            </section>
+            <section id="payment-panel" class="panel content" aria-labelledby="payment-title" hidden>
+              <div class="panel-heading">
+                <h2 id="payment-title" tabindex="-1">Платёж</h2>
                 <div class="actions">
-                  <button id="previous" type="button" class="secondary">Назад</button>
-                  <button id="next" type="button" class="secondary">Далее</button>
+                  <button id="payment-retry" type="button" class="secondary" hidden>Повторить платёж</button>
+                  <button id="payment-back" type="button" class="secondary">К списку</button>
                 </div>
               </div>
+              <p id="payment-feedback" class="notice notice-message" role="status"></p>
+              <p id="payment-error" class="notice notice-message"></p>
+              <div id="payment-retry-result" class="actions" hidden></div>
+              <div id="payment-data" class="record-card"></div>
+            </section>
+            <section id="transfer-panel" class="panel content" aria-labelledby="transfer-title" hidden>
+              <div class="panel-heading">
+                <h2 id="transfer-title" tabindex="-1">Перевод</h2>
+                <button id="transfer-back" type="button" class="secondary">К списку</button>
+              </div>
+              <div id="transfer-data" class="record-card"></div>
+            </section>
+            <section id="deal-panel" class="panel content beneficiary-panel" aria-labelledby="deal-title" hidden>
+              <div class="panel-heading">
+                <h2 id="deal-title" tabindex="-1">Сделка</h2>
+                <div class="actions">
+                  <button id="deal-refresh" type="button" class="secondary" data-deal-control>Обновить</button>
+                  <button id="deal-back" type="button" class="secondary">К списку</button>
+                </div>
+              </div>
+              <p id="deal-status" class="notice notice-message" role="status"></p>
+              <dl id="deal-data" class="record-fields record-card standalone-fields"></dl>
+              <div id="deal-actions" class="actions" hidden>
+                <button id="deal-validate" type="button" class="secondary" data-deal-control>Проверить возможность выплат</button>
+                <button id="deal-accept" type="button" class="secondary" data-deal-control>Подтвердить параметры</button>
+                <button id="deal-draft" type="button" class="secondary" data-deal-control>В черновик</button>
+                <button id="deal-cancel" type="button" class="danger" data-deal-control>Отменить сделку</button>
+                <button id="deal-delete" type="button" class="danger" data-deal-control>Удалить сделку</button>
+              </div>
+              <div id="deal-validation" class="notice" aria-live="polite"></div>
+              <section id="deal-steps" class="balances" aria-labelledby="deal-steps-title" hidden>
+                <div class="panel-heading">
+                  <h3 id="deal-steps-title">Этапы сделки</h3>
+                  <button id="step-create" type="button" class="secondary" data-deal-control>Добавить этап</button>
+                </div>
+                <p id="step-list-status" class="notice notice-message" role="status"></p>
+                <div id="step-list" class="table-scroll"></div>
+                <div id="step-pages" class="actions" aria-label="Страницы этапов" hidden>
+                  <span id="step-count" class="page-summary" role="status"></span>
+                  <button id="step-prev" type="button" class="secondary" data-deal-control>Назад</button>
+                  <button id="step-next" type="button" class="secondary" data-deal-control>Далее</button>
+                </div>
+                <div id="step-detail" class="step-detail">
+                  <p id="step-status" class="notice notice-message" role="status"></p>
+                  <section id="step-panel" class="bank-detail" aria-labelledby="step-title" hidden>
+                    <div class="panel-heading">
+                      <h3 id="step-title" tabindex="-1">Этап сделки</h3>
+                      <div class="actions">
+                        <button id="step-payments" type="button" class="secondary" data-deal-control>Платежи по сделке</button>
+                        <button id="step-edit" type="button" class="secondary" data-deal-control>Редактировать</button>
+                        <button id="step-complete" type="button" class="secondary" data-deal-control>Завершить этап</button>
+                        <button id="step-delete" type="button" class="danger" data-deal-control>Удалить этап</button>
+                      </div>
+                    </div>
+                    <dl id="step-data" class="record-fields standalone-fields"></dl>
+                    <div id="step-parties"></div>
+                  </section>
+                </div>
+              </section>
             </section>
             <section id="entity-editor" class="panel content" aria-labelledby="entity-title" hidden>
               <h2 id="entity-title" tabindex="-1"></h2>
               <p id="entity-owner" class="field-hint"></p>
-              <p id="entity-status" class="status" role="status"></p>
+              <p id="entity-status" class="notice notice-message" role="status"></p>
               <form id="entity-form" autocomplete="off">
                 <fieldset id="entity-fields" class="entity-fields"></fieldset>
                 <div class="actions">
@@ -86,56 +339,86 @@
                 </div>
               </form>
             </section>
-            <section id="beneficiary-panel" class="panel content beneficiary-panel" aria-labelledby="beneficiary-name" hidden>
-              <div class="panel-heading">
-                <div>
-                  <p id="beneficiary-type" class="eyebrow"></p>
-                  <h2 id="beneficiary-name" tabindex="-1">Карточка бенефициара</h2>
-                </div>
-                <div class="actions">
-                  <button id="beneficiary-edit" type="button" data-beneficiary-action>Редактировать</button>
-                  <button id="beneficiary-close" type="button" class="secondary">К списку</button>
-                </div>
-              </div>
-              <div id="beneficiary-data"></div>
-              <p id="beneficiary-feedback" class="inline-status" role="status"></p>
-              <section class="balances" aria-labelledby="balances-title">
+            <div id="beneficiary-view" class="beneficiary-view" hidden>
+              <section id="beneficiary-panel" class="panel content beneficiary-block" aria-labelledby="beneficiary-name">
                 <div class="panel-heading">
-                  <h3 id="balances-title">Баланс на виртуальных счетах</h3>
-                  <button id="balance-load" type="button" class="secondary" data-beneficiary-action>Показать баланс</button>
+                  <div>
+                    <p id="beneficiary-type" class="eyebrow"></p>
+                    <h2 id="beneficiary-name" tabindex="-1">Карточка бенефициара</h2>
+                  </div>
+                  <div class="actions">
+                    <button id="beneficiary-edit" type="button" data-beneficiary-action>Редактировать</button>
+                    <button id="beneficiary-close" type="button" class="secondary">К списку</button>
+                  </div>
                 </div>
-                <p id="balance-status" class="inline-status" role="status"></p>
-                <div id="balance-table" class="table-scroll"></div>
-                <div id="balance-pages" class="actions" aria-label="Страницы баланса" hidden>
-                  <button id="balance-prev" type="button" class="secondary" data-beneficiary-action>Назад</button>
-                  <button id="balance-next" type="button" class="secondary" data-beneficiary-action>Далее</button>
+                <div id="beneficiary-data"></div>
+                <p id="beneficiary-feedback" class="notice notice-message" role="status"></p>
+              </section>
+              <section class="panel content beneficiary-block" aria-labelledby="scoring-title">
+                <div class="panel-heading">
+                  <h2 id="scoring-title">Скоринг статус</h2>
+                  <button id="scoring-check" type="button" class="secondary" data-beneficiary-action>Проверить</button>
+                </div>
+                <p id="scoring-status" class="notice notice-message" role="status"></p>
+                <div id="scoring-result" class="scoring-results" aria-live="polite"></div>
+              </section>
+              <section id="bank-section" class="panel content beneficiary-block" aria-labelledby="bank-title">
+                <h2 id="bank-title" tabindex="-1">
+                  <button id="bank-toggle" class="beneficiary-toggle" type="button" aria-expanded="false" aria-controls="bank-content">
+                    <span>Реквизиты</span><span class="disclosure-label" aria-hidden="true">Развернуть</span>
+                  </button>
+                </h2>
+                <div id="bank-content" class="beneficiary-block-content" hidden>
+                  <div class="actions beneficiary-block-actions">
+                    <button id="bank-create" type="button" data-beneficiary-action>Добавить реквизиты</button>
+                  </div>
+                  <p id="bank-availability" class="notice notice-message" role="status"></p>
+                  <button id="bank-retry" type="button" class="secondary" data-beneficiary-action hidden>Повторить загрузку</button>
+                  <p id="bank-status" class="notice notice-message" role="status"></p>
+                  <div id="bank-list" class="table-scroll"></div>
                 </div>
               </section>
-            </section>
-            <section id="bank-section" class="panel content bank-section" aria-labelledby="bank-title" hidden>
-                <div class="panel-heading">
-                  <h2 id="bank-title">Реквизиты</h2>
-                  <button id="bank-create" type="button" data-beneficiary-action>Добавить реквизиты</button>
-                </div>
-                <p id="bank-availability" class="inline-status" role="status"></p>
-                <button id="bank-retry" type="button" class="secondary" data-beneficiary-action hidden>Повторить загрузку</button>
-                <form id="bank-search" class="bank-search">
-                  <label for="bank-id">ID реквизитов
-                    <input id="bank-id" placeholder="UUID" spellcheck="false" required>
-                  </label>
-                  <button type="submit" class="secondary" data-beneficiary-action>Найти по ID</button>
-                </form>
-                <p id="bank-status" class="inline-status" role="status"></p>
-                <div id="bank-list" class="table-scroll"></div>
-                <section id="bank-detail" class="bank-detail" aria-labelledby="bank-record-title" hidden>
-                  <div class="panel-heading">
-                    <div class="actions">
-                      <h3 id="bank-record-title" tabindex="-1">Реквизиты</h3>
+              <section class="panel content beneficiary-block" aria-labelledby="funds-title">
+                <h2 id="funds-title">
+                  <button id="funds-toggle" class="beneficiary-toggle" type="button" aria-expanded="false" aria-controls="funds-content">
+                    <span>Денежные средства</span><span class="disclosure-label" aria-hidden="true">Развернуть</span>
+                  </button>
+                </h2>
+                <div id="funds-content" class="beneficiary-block-content" hidden>
+                  <section class="funds-group" aria-labelledby="balances-title">
+                    <div class="panel-heading">
+                      <h3 id="balances-title">Баланс на виртуальных счетах</h3>
+                      <button id="balance-load" type="button" class="secondary" data-beneficiary-action>Обновить баланс</button>
                     </div>
-                  </div>
-                  <div id="bank-data"></div>
-                </section>
-            </section>
+                    <p id="balance-status" class="notice notice-message" role="status"></p>
+                    <div id="balance-table" class="table-scroll"></div>
+                    <div id="balance-pages" class="actions" aria-label="Страницы баланса" hidden>
+                      <button id="balance-prev" type="button" class="secondary" data-beneficiary-action>Назад</button>
+                      <button id="balance-next" type="button" class="secondary" data-beneficiary-action>Далее</button>
+                    </div>
+                  </section>
+                  <section class="funds-group virtual-holds" aria-labelledby="holds-title">
+                    <h3 id="holds-title">Холды</h3>
+                    <p id="holds-status" class="notice notice-message" role="status"></p>
+                    <div id="holds-table" class="table-scroll"></div>
+                    <div id="holds-pages" class="actions" aria-label="Страницы холдов" hidden>
+                      <button id="holds-prev" type="button" class="secondary" data-beneficiary-action>Назад</button>
+                      <button id="holds-next" type="button" class="secondary" data-beneficiary-action>Далее</button>
+                    </div>
+                  </section>
+                </div>
+              </section>
+              <section class="panel content beneficiary-block" aria-labelledby="beneficiary-transfers-title">
+                <h2 id="beneficiary-transfers-title">
+                  <button id="beneficiary-transfers-toggle" class="beneficiary-toggle" type="button" aria-expanded="false" aria-controls="beneficiary-transfers-content">
+                    <span>Переводы</span><span class="disclosure-label" aria-hidden="true">Развернуть</span>
+                  </button>
+                </h2>
+                <div id="beneficiary-transfers-content" class="beneficiary-block-content" hidden>
+                  <div id="beneficiary-transfer-lists"></div>
+                </div>
+              </section>
+            </div>
           </div>
       </div>
       <section id="connection-settings" aria-labelledby="settings-title" hidden>
@@ -152,11 +435,15 @@
               <span id="settings-badge" class="settings-badge" hidden>Сохранены</span>
             </div>
             <form id="settings-form" class="settings-form">
+              <label for="proxy-environment" class="wide">Окружение
+                <select id="proxy-environment" aria-describedby="proxy-environment-help"></select>
+                <span id="proxy-environment-help" class="field-hint"></span>
+              </label>
               <label for="proxy">Базовый URL прокси
-                <input id="proxy" type="url" placeholder="https://proxy.company.example" required spellcheck="false">
+                <input id="proxy" type="url" placeholder="https://proxy.company.example" readonly spellcheck="false">
               </label>
               <label for="prefix">Путь к номинальным счетам
-                <input id="prefix" placeholder="/api/v1/nominal-accounts" required spellcheck="false">
+                <input id="prefix" placeholder="/api/v1/nominal-accounts" readonly spellcheck="false">
               </label>
               <label for="bank-account-id">bankAccountId
                 <input id="bank-account-id" placeholder="UUID номинального счёта" spellcheck="false">
@@ -187,23 +474,214 @@
       </section>
     </main>
   </div>
+  <span class="sr-only" id="copy-status" role="status"></span>
+  <dialog id="statement-calendar" class="entity-dialog statement-calendar" aria-labelledby="calendar-title">
+    <form method="dialog" id="calendar-form">
+      <header class="dialog-heading"><h2 id="calendar-title">Дата и время (МСК)</h2></header>
+      <div class="calendar-body">
+        <div class="calendar-navigation">
+          <button id="calendar-prev" class="secondary" type="button" aria-label="Предыдущий месяц">‹</button>
+          <strong id="calendar-month" aria-live="polite"></strong>
+          <button id="calendar-next" class="secondary" type="button" aria-label="Следующий месяц">›</button>
+        </div>
+        <div class="calendar-grid" aria-hidden="true"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
+        <div id="calendar-days" class="calendar-grid" aria-label="Дни месяца"></div>
+        <label>Время <input id="calendar-time" type="time" required></label>
+      </div>
+      <footer class="dialog-footer">
+        <button id="calendar-cancel" class="secondary" type="button">Отмена</button>
+        <button class="create-action" type="submit">Готово</button>
+      </footer>
+    </form>
+  </dialog>
+  <template id="pagination-template">
+    <span data-page="summary" class="page-summary" role="status"></span>
+    <label>Строк на странице <select data-page="limit"></select></label>
+    <div class="page-controls">
+      <nav class="page-navigation" aria-label="Страницы списка">
+        <button data-page="first" type="button" class="secondary" aria-label="Первая страница" title="Первая страница">«</button>
+        <button data-page="previous" type="button" class="secondary" aria-label="Назад" title="Предыдущая страница">‹</button>
+        <span data-page="numbers" class="page-numbers"></span>
+        <button data-page="next" type="button" class="secondary" aria-label="Далее" title="Следующая страница">›</button>
+        <button data-page="last" type="button" class="secondary" aria-label="Последняя страница" title="Последняя страница">»</button>
+      </nav>
+      <form data-page="jump" class="page-jump" hidden>
+        <label>К странице <input data-page="number" type="number" min="1" step="1" inputmode="numeric" required></label>
+        <button type="submit" class="secondary">Перейти</button>
+      </form>
+    </div>
+  </template>
+  <template id="beneficiary-transfer-template">
+    <section class="funds-group beneficiary-transfer-group">
+      <h3 data-part="heading">
+        <button data-part="toggle" class="beneficiary-toggle" type="button" aria-expanded="false">
+          <span data-part="title"></span><span class="disclosure-label" aria-hidden="true">Развернуть</span>
+        </button>
+      </h3>
+      <div data-part="content" class="beneficiary-transfer-content" hidden>
+        <div class="actions beneficiary-block-actions">
+          <button data-part="refresh" class="secondary" type="button">Обновить</button>
+        </div>
+        <p data-part="status" class="notice notice-message" role="status"></p>
+        <div data-part="table" class="table-scroll"></div>
+        <div data-part="pagination" class="pagination" hidden></div>
+      </div>
+    </section>
+  </template>
+  <template id="beneficiary-transfer-detail-template">
+    <section class="beneficiary-transfer-detail bank-detail">
+      <div class="panel-heading">
+        <h4 tabindex="-1">Перевод</h4>
+        <button data-part="close" type="button" class="secondary">Закрыть перевод</button>
+      </div>
+      <p data-part="detail-status" class="notice notice-message" role="status"></p>
+      <div data-part="data" class="record-card" hidden></div>
+    </section>
+  </template>
+  <dialog id="billing-dialog" class="entity-dialog" aria-labelledby="billing-title">
+    <form id="billing-form" autocomplete="off">
+      <header class="dialog-heading"><h2 id="billing-title"></h2></header>
+      <fieldset id="billing-fields" class="entity-fields form-grid">
+        <label for="billing-account">Номер номинального счёта
+          <input id="billing-account" inputmode="numeric" maxlength="22" pattern="[0-9]{20}|[0-9]{22}" required>
+        </label>
+        <label for="billing-amount">Сумма
+          <input id="billing-amount" inputmode="decimal" placeholder="0,00" required>
+        </label>
+        <label for="billing-from"><span id="billing-from-label"></span>
+          <input id="billing-from" placeholder="UUID" spellcheck="false" required>
+        </label>
+        <label for="billing-to">ID получателя
+          <input id="billing-to" placeholder="UUID" spellcheck="false" required>
+        </label>
+        <div id="billing-bank-controls">
+          <button id="billing-bank-load" type="button" class="secondary" aria-describedby="billing-bank-status">Загрузить реквизиты</button>
+        </div>
+        <p id="billing-bank-status" class="notice notice-message" role="status"></p>
+        <label id="billing-bank-label" for="billing-bank">Реквизиты получателя
+          <select id="billing-bank"></select>
+        </label>
+        <label id="billing-purpose-label" for="billing-purpose">Назначение платежа
+          <textarea id="billing-purpose" rows="3" maxlength="210"></textarea>
+        </label>
+      </fieldset>
+      <footer class="dialog-footer">
+        <p id="billing-status" class="notice notice-message" role="status"></p>
+        <button id="billing-cancel" type="button" class="secondary">Отмена</button>
+        <button id="billing-submit" type="submit" class="create-action"></button>
+      </footer>
+    </form>
+  </dialog>
+  <dialog id="billing-filters-dialog" class="entity-dialog" aria-labelledby="billing-filters-title">
+    <form id="billing-filters-form" autocomplete="off">
+      <header class="dialog-heading"><h2 id="billing-filters-title"></h2></header>
+      <fieldset class="entity-fields form-grid">
+        <label for="filter-beneficiary">ID бенефициара
+          <input id="filter-beneficiary" name="beneficiaryId" placeholder="UUID" spellcheck="false">
+        </label>
+        <label for="filter-from-beneficiary">ID отправителя
+          <input id="filter-from-beneficiary" name="fromBeneficiaryId" placeholder="UUID" spellcheck="false">
+        </label>
+        <label for="filter-to-beneficiary">ID получателя
+          <input id="filter-to-beneficiary" name="toBeneficiaryId" placeholder="UUID" spellcheck="false">
+        </label>
+        <label for="filter-deal">ID сделки
+          <input id="filter-deal" name="dealId" placeholder="UUID" spellcheck="false">
+        </label>
+      </fieldset>
+      <footer class="dialog-footer">
+        <button id="billing-filters-reset" type="button" class="secondary">Сбросить</button>
+        <button id="billing-filters-cancel" type="button" class="secondary">Отмена</button>
+        <button type="submit" class="create-action">Применить</button>
+      </footer>
+    </form>
+  </dialog>
+  <dialog id="deal-dialog" class="entity-dialog" aria-labelledby="deal-editor-title">
+    <form id="deal-form" autocomplete="off">
+      <header class="dialog-heading"><h2 id="deal-editor-title"></h2></header>
+      <fieldset id="deal-fields" class="entity-fields">
+        <label for="deal-account">Номер номинального счёта
+          <input id="deal-account" inputmode="numeric" pattern="[0-9]{20}|[0-9]{22}" maxlength="22" spellcheck="false" required>
+        </label>
+        <label for="step-description">Описание этапа
+          <textarea id="step-description" rows="4" minlength="3" maxlength="4096" required></textarea>
+        </label>
+      </fieldset>
+      <footer class="dialog-footer">
+        <p id="deal-editor-status" class="notice notice-message" role="status"></p>
+        <button id="deal-dialog-cancel" type="button" class="secondary">Отмена</button>
+        <button id="deal-save" type="submit" class="create-action">Сохранить</button>
+      </footer>
+    </form>
+  </dialog>
+  <template id="step-party-group">
+    <section class="step-party-group">
+      <div class="panel-heading">
+        <h4></h4>
+        <div class="actions">
+          <button type="button" class="secondary" data-action="refresh">Обновить</button>
+          <button type="button" class="secondary" data-action="add"></button>
+        </div>
+      </div>
+      <p class="notice notice-message" role="status"></p>
+      <div class="table-scroll" data-part="table"></div>
+      <div class="actions" data-part="pages" hidden>
+        <span class="page-summary" role="status"></span>
+        <button type="button" class="secondary" data-action="previous">Назад</button>
+        <button type="button" class="secondary" data-action="next">Далее</button>
+      </div>
+    </section>
+  </template>
+  <dialog id="party-dialog" class="entity-dialog" aria-labelledby="party-editor-title">
+    <form id="party-form" autocomplete="off">
+      <header class="dialog-heading"><h2 id="party-editor-title"></h2></header>
+      <fieldset id="party-fields" class="entity-fields party-fields">
+        <label for="party-beneficiary">ID бенефициара
+          <input id="party-beneficiary" placeholder="UUID бенефициара" spellcheck="false" required>
+        </label>
+        <div>
+          <button id="party-lookup" type="button" class="secondary">Проверить бенефициара</button>
+          <p id="party-lookup-status" class="notice notice-message" role="status"></p>
+        </div>
+        <label for="party-amount">Сумма
+          <input id="party-amount" inputmode="decimal" placeholder="0,00" required>
+        </label>
+        <label for="party-purpose">Назначение платежа
+          <input id="party-purpose" maxlength="210">
+        </label>
+        <label for="party-destination">Куда выплатить
+          <select id="party-destination">
+            <option value="virtual">На виртуальный счёт</option>
+            <option value="bank">На банковские реквизиты</option>
+          </select>
+        </label>
+        <label for="party-bank">ID банковских реквизитов
+          <input id="party-bank" list="party-bank-options" placeholder="UUID реквизитов" spellcheck="false" required>
+          <datalist id="party-bank-options"></datalist>
+        </label>
+        <p id="party-upsert-hint" class="field-hint" hidden>Если бенефициар уже добавлен как депонент этого этапа, сохранение обновит его сумму.</p>
+      </fieldset>
+      <footer class="dialog-footer">
+        <p id="party-editor-status" class="notice notice-message" role="status"></p>
+        <button id="party-form-cancel" type="button" class="secondary">Отмена</button>
+        <button id="party-save" type="submit" class="create-action">Сохранить</button>
+      </footer>
+    </form>
+  </dialog>
   <dialog id="identify-dialog" class="entity-dialog" aria-labelledby="identify-title">
     <form id="identify-form" novalidate autocomplete="off">
       <header class="dialog-heading">
         <h2 id="identify-title">Идентифицировать пополнение</h2>
-        <p id="identify-payment"></p>
-        <p class="field-hint">ID операции <span id="identify-operation"></span></p>
+        <dl id="identify-summary" class="record-fields record-summary-fields standalone-fields"></dl>
       </header>
       <fieldset id="identify-fields" class="entity-fields">
         <div id="distribution-rows" class="field-rows"></div>
         <button id="distribution-add" type="button" class="secondary">Добавить бенефициара</button>
       </fieldset>
-      <div class="distribution-summary">
-        <span>Распределено <strong id="distribution-total"></strong></span>
-        <span>Осталось <strong id="distribution-left"></strong></span>
-      </div>
+      <dl id="distribution-summary" class="distribution-summary record-fields"></dl>
       <footer class="dialog-footer">
-        <p id="identify-status" class="inline-status" role="status"></p>
+        <p id="identify-status" class="notice notice-message" role="status"></p>
+        <button id="identify-verify" type="button" class="secondary" hidden>Проверить пополнение</button>
         <button id="identify-cancel" type="button" class="secondary">Отмена</button>
         <button id="identify-submit" type="submit" class="create-action">Идентифицировать</button>
       </footer>
@@ -220,9 +698,10 @@
       <button type="button" class="secondary distribution-remove">Убрать</button>
       <button type="button" class="secondary recipient-check" hidden>Проверить бенефициара</button>
       <div class="recipient-preview" hidden>
+        <p class="recipient-info-status notice notice-message" role="status"></p>
         <div class="recipient-info" role="status"></div>
         <h3>Баланс на виртуальных счетах</h3>
-        <p class="recipient-balance-status inline-status" role="status"></p>
+        <p class="recipient-balance-status notice notice-message" role="status"></p>
         <div class="recipient-balances table-scroll"></div>
         <button type="button" class="secondary recipient-more" hidden>Показать ещё</button>
       </div>
