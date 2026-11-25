@@ -315,6 +315,7 @@ export const security = [
     await settings(t, { account: '00' + demoAccount });
     await sign(t);
     await list(t, 'dashboard');
+    await t.click('#dashboard-finance-tab');
     await t.has('[data-dashboard="status"]', '20-значный номер');
     await list(t, 'statement');
     assert.equal(await t.evaluate(() => document.querySelector('#statement-form [name=accountNumber]').value), '');

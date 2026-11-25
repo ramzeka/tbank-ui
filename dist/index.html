@@ -90,47 +90,30 @@
           <section id="dashboard-panel" class="dashboard" aria-labelledby="section-title">
             <div class="dashboard-toolbar">
               <div class="dashboard-segments" role="tablist" aria-label="Обзор счёта">
-                <button type="button" id="dashboard-finance-tab" role="tab" data-view="finance" aria-controls="dashboard-finance" aria-selected="true">Деньги и операции</button>
-                <button type="button" id="dashboard-operations-tab" role="tab" data-view="operations" aria-controls="dashboard-operations" aria-selected="false" tabindex="-1">Операционный контроль</button>
+                <button type="button" id="dashboard-support-tab" role="tab" data-view="support" aria-controls="dashboard-support" aria-selected="true">Поддержка</button>
+                <button type="button" id="dashboard-finance-tab" role="tab" data-view="finance" aria-controls="dashboard-finance" aria-selected="false" tabindex="-1">Деньги и операции</button>
               </div>
               <div class="dashboard-actions">
                 <span class="dashboard-note" data-dashboard="account" hidden></span>
                 <div class="dashboard-segments" role="group" aria-label="Период обзора" data-dashboard="periods" hidden>
-                  <button type="button" data-period="7" aria-pressed="false">7 дней</button>
-                  <button type="button" data-period="30" aria-pressed="true">30 дней</button>
+                  <button type="button" data-period="7" aria-pressed="true">7 дней</button>
+                  <button type="button" data-period="30" aria-pressed="false">30 дней</button>
                 </div>
                 <button type="button" class="secondary" data-dashboard="refresh" disabled>Обновить</button>
               </div>
             </div>
             <p class="dashboard-card dashboard-status" data-dashboard="status" role="status">Войдите в настройках подключения, чтобы загрузить обзор.</p>
-            <div id="dashboard-finance" class="dashboard-view" data-dashboard="finance" role="tabpanel" aria-labelledby="dashboard-finance-tab">
-              <div class="dashboard-view" data-dashboard="finance-content" aria-live="polite" hidden></div>
-            </div>
-            <div id="dashboard-operations" class="dashboard-view" data-dashboard="operations" role="tabpanel" aria-labelledby="dashboard-operations-tab" hidden>
-              <div class="dashboard-view" data-dashboard="operations-content" hidden>
-                <div class="dashboard-stats" data-dashboard="operations-stats" aria-live="polite"></div>
-                <section class="dashboard-card dashboard-panel" aria-labelledby="dashboard-queue-title">
-                  <div class="dashboard-panel-heading">
-                    <h2 id="dashboard-queue-title">Пополнения и ошибки выплат</h2>
-                    <button type="button" class="link" data-dashboard="queue-link" hidden></button>
-                  </div>
-                  <div class="dashboard-segments" role="group" aria-label="Тип операции">
-                    <button type="button" data-queue="incoming" aria-pressed="true">Пополнения</button>
-                    <button type="button" data-queue="payments" aria-pressed="false">Ошибки выплат</button>
-                  </div>
-                  <div data-dashboard="queue-content" aria-live="polite"></div>
-                </section>
-                <div class="dashboard-figures dashboard-figures-equal">
-                  <figure class="dashboard-card dashboard-panel">
-                    <figcaption class="dashboard-panel-heading"><h2>Возраст пополнений</h2><span class="dashboard-note">Календарные дни</span></figcaption>
-                    <div data-dashboard="age"></div>
-                  </figure>
-                  <figure class="dashboard-card dashboard-panel">
-                    <figcaption class="dashboard-panel-heading"><h2>Сделки в работе</h2></figcaption>
-                    <div data-dashboard="deals"></div>
-                  </figure>
+            <div id="dashboard-support" class="dashboard-view" data-dashboard="support" role="tabpanel" aria-labelledby="dashboard-support-tab" hidden>
+              <section class="dashboard-card dashboard-panel" aria-labelledby="support-incoming-title">
+                <div class="dashboard-panel-heading">
+                  <h2 id="support-incoming-title">Неидентифицированные пополнения</h2>
+                  <button type="button" class="secondary" data-dashboard="incoming-link">К пополнениям</button>
                 </div>
-              </div>
+                <div class="dashboard-view" data-dashboard="support-content" aria-live="polite"></div>
+              </section>
+            </div>
+            <div id="dashboard-finance" class="dashboard-view" data-dashboard="finance" role="tabpanel" aria-labelledby="dashboard-finance-tab" hidden>
+              <div class="dashboard-view" data-dashboard="finance-content" aria-live="polite"></div>
             </div>
           </section>
           <div class="data-area" id="section-data" hidden>

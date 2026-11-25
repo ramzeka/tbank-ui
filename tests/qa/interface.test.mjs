@@ -1,51 +1,80 @@
 
 import { assert, path, test, until, uuid } from './harness.mjs';
-import { focus, last, list, ready } from './flows.mjs';
+import { focus, last, list, ready, reload } from './flows.mjs';
 
 const ST = path.statement;
-const queue = '[data-dashboard="queue-content"]';
-const totals = '[data-dashboard="operations-stats"]';
 const statementSubmit = '#statement-form button[type=submit]';
 
-export const dashboard = test('DASH-01', 'Обзор 7/30 дней, ранний показ очереди, итоговые счетчики и переходы в карточки', async t => {
+export const dashboard = test('DASH-01', 'Неидентифицированные пополнения и финансовый обзор без обхода страниц', async t => {
+  if (await t.visible('#refresh')) await ready(t, '#refresh');
+  const IN = path.incoming;
+  const entries = [
+    { operationId: uuid(930001), transactionDate: '2026-11-22T21:30:00Z', amount: '125.50', currency: '643', payerName: 'Тестовый плательщик' },
+    { operationId: uuid(930002), transactionDate: '2026-11-23', amount: '35.01', currency: 'RUB' },
+    { operationId: uuid(930003), transactionDate: '2026-11-22T20:59:00Z', amount: '41.00', currency: 'RUB' },
+  ];
+  t.before('GET', IN, 200, { results: entries, total: 3 });
+  const mark = t.trace.length;
+  const calls = () => t.trace.slice(mark).map(call => call.path);
+  const support = '[data-dashboard="support-content"]';
+  const finance = '[data-dashboard="finance-content"]';
+  const status = '[data-dashboard="status"]';
+  await reload(t);
+  await t.has(support, '201,51');
+  await t.has(support, 'Общая сумма');
+  const groups = await t.evaluate(selector => Array.from(document.querySelectorAll(selector + ' tbody tr'),
+    row => Array.from(row.cells, cell => cell.textContent)), support);
+  assert.deepEqual(groups.map(([, value]) => value), ['2', '1']);
+  assert.match(groups[0][0], /^23/);
+  assert.match(groups[1][0], /^22/);
+  assert.equal(await t.evaluate(() => document.querySelector('[role="tablist"] [aria-selected=true]').textContent), 'Поддержка');
+  assert.deepEqual(calls(), [IN]);
+  const initial = last(t, 'GET', IN);
+  const query = new URL(initial.url, t.origin).searchParams;
+  assert.equal(query.get('limit'), '50');
+  assert.equal(query.get('offset'), '0');
+  assert.equal(initial.account, uuid(990));
+
+  await t.click('[data-dashboard="incoming-link"]');
+  await t.has('#result', 'Тестовый плательщик');
   await list(t, 'dashboard');
-  if (!await t.visible('[data-period="7"]')) await t.click('#dashboard-finance-tab');
-  await t.has('[data-dashboard="finance-content"]', 'Остаток на конец периода');
-  for (const days of ['7', '30']) {
-    const selector = '[data-period="' + days + '"]';
-    await t.click(selector);
-    await t.has('[data-dashboard="finance-content"]', 'Остаток на конец периода');
-    assert.equal(await t.evaluate(selector => document.querySelector(selector).getAttribute('aria-pressed'), selector), 'true');
-  }
-  t.faults.push({ method: 'GET', path: path.payments, query: { offset: '50' }, delay: 750 });
-  const mark = t.calls('GET', path.payments).length;
-  const started = Date.now();
-  await t.click('#dashboard-operations-tab');
-  await t.click('[data-queue="payments"]');
-  await t.has(queue, 'Предварительные данные');
-  await t.wait(queue + ' table');
-  const previewMs = Date.now() - started;
-  const previewRequests = t.calls('GET', path.payments).length - mark;
-  assert(previewRequests < Math.ceil(t.mock.payments.size / 50));
-  await t.evaluate(sel => document.querySelector(sel + ' tbody button').focus(), queue);
-  const selected = await t.evaluate(() => document.activeElement.dataset.operationId);
-  await until(async () => !(await t.text(queue)).includes('Предварительные данные'), 'полный список выплат', 90000);
-  await t.has(queue, 'Показано 5 из');
-  assert.equal(await t.evaluate(() => document.activeElement.dataset.operationId), selected);
-  const readyMs = Date.now() - started;
-  const requests = t.calls('GET', path.payments).length - mark;
-  assert.equal(requests, Math.ceil(t.mock.payments.size / 50));
-  const failed = [...t.mock.payments.values()].filter(payment => payment.status === 'FAILED').length;
-  const number = new Intl.NumberFormat('ru-RU').format(failed);
-  await t.has(totals, number);
-  await t.click(queue + ' tbody button');
-  await t.wait('#payment-panel');
-  await list(t, 'dashboard');
-  await t.click('[data-queue="incoming"]');
-  await t.wait(queue + ' table');
-  await t.click(queue + ' tbody button');
-  await t.wait('#transaction-panel');
-  return { previewMs, readyMs, previewRequests, requests };
+  assert.deepEqual(calls(), [IN]);
+  t.before('GET', IN, 200, { results: entries, total: 120 });
+  await t.click('[data-dashboard="refresh"]');
+  await t.has(status, 'из 120 пополнений');
+  await t.has(support, 'Сумма загруженных пополнений');
+  assert.deepEqual(calls(), [IN, IN]);
+
+  const credit = {
+    operationId: uuid(920700), operationDate: new Date(Date.now() - 3600000).toISOString(),
+    typeOfOperation: 'Credit', operationStatus: 'Transaction',
+    accountAmount: 125.5, accountCurrencyDigitalCode: '643', payer: { name: 'Тестовый плательщик' },
+  };
+  const operations = [credit,
+    { ...credit, operationId: uuid(920701), typeOfOperation: 'Debit', accountAmount: 41 },
+    { ...credit, operationId: uuid(920702), operationStatus: 'Authorization', accountAmount: 999 },
+  ];
+  t.before('GET', ST, 200, { operations, nextCursor: 'unread-page' });
+  await t.click('#dashboard-finance-tab');
+  await t.has(finance, '125,50');
+  await t.has(finance, '41');
+  await t.has(finance, 'Движение денег');
+  await t.has(finance, 'Последние операции');
+  await t.has(status, 'Показатели рассчитаны по загруженным данным');
+  assert(!/остаток|999/i.test(await t.text(finance)));
+  assert.deepEqual(calls(), [IN, IN, ST]);
+  const request = new URL(last(t, 'GET', ST).url, t.origin).searchParams;
+  assert.equal(request.get('limit'), '5000');
+  assert.equal(request.get('operationStatus'), 'Transaction');
+  assert.equal(request.has('withBalances') || request.has('cursor'), false);
+
+  await t.click('[data-period="30"]');
+  await t.has(finance, 'Последние операции');
+  await t.click('[data-period="7"]');
+  await t.has(finance, '125,50');
+  await t.click('#dashboard-support-tab');
+  await t.has(support, '201,51');
+  assert.deepEqual(calls(), [IN, IN, ST, ST]);
 });
 
 export const interfaces = [
@@ -107,9 +136,9 @@ export const interfaces = [
     await t.click('#dashboard-finance-tab');
     await t.evaluate(() => document.querySelector('#dashboard-finance-tab').focus());
     await t.key('ArrowRight', 39);
-    assert.equal(await focus(t), 'dashboard-operations-tab');
-    assert.equal(await t.evaluate(() => document.querySelector('#dashboard-operations-tab').getAttribute('aria-selected')), 'true');
-    await t.key('Home', 36);
+    assert.equal(await focus(t), 'dashboard-support-tab');
+    assert.equal(await t.evaluate(() => document.querySelector('#dashboard-support-tab').getAttribute('aria-selected')), 'true');
+    await t.key('End', 35);
     assert.equal(await focus(t), 'dashboard-finance-tab');
     await list(t, 'deals');
     await ready(t, '#deal-create');

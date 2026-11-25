@@ -176,7 +176,6 @@ function showStatus(id, message, state = 'idle') {
 function clearResults(message) {
   activeRequest?.abort();
   activeRequest = undefined;
-  dashboardWorkspace.reset();
   statementWorkspace.reset();
   cancelTransactionSearch();
   closeTransaction();
@@ -196,6 +195,7 @@ function clearResults(message) {
 
 function endSession(message, state = 'idle') {
   session = undefined;
+  dashboardWorkspace.reset();
   identification.endSession();
   beneficiaryWorkspace.close();
   clearTokenInput();
@@ -910,6 +910,7 @@ async function load(offset = 0, limit = Number(pagination.limit.value)) {
 }
 
 function finishIdentification(operationId, notice) {
+  dashboardWorkspace.invalidateIncoming();
   closeTransaction();
   if (!notice) $('result').querySelector('[data-operation-id="' + operationId + '"]')?.remove();
   $('results-title').focus();
@@ -933,14 +934,8 @@ function reloadList() {
 const statementWorkspace = initStatement(requestApi);
 const dashboardWorkspace = initDashboard($('dashboard-panel'), {
   request: requestApi,
-  read: (name, offset, limit, signal) => readList(name, offset, limit, signal, {}),
+  readIncoming: (offset, limit, signal) => readList('incoming-transactions', offset, limit, signal),
   navigate: navigateTo,
-  openIncoming(item) {
-    if (navigateTo('incoming-transactions')) openTransaction(item);
-  },
-  openPayment(id) {
-    if (navigateTo('payments')) openBillingRecord('payment', id);
-  },
 });
 const beneficiaryWorkspace = initBeneficiaries(requestApi, reloadList, initBeneficiaryTransfers(requestApi));
 const dealsWorkspace = initDeals(requestApi, reloadList, () => config?.accountNumber, dealId => {
@@ -957,10 +952,15 @@ const billingEditor = initBillingEditor({
   },
 });
 
-function loadFirstPage() {
+function loadFirstPage(incomingPage) {
   clearResults('Войдите в настройках подключения, чтобы загрузить данные.');
   if (section === 'dashboard') dashboardWorkspace.open(config?.accountNumber, Boolean(session));
   else if (section === 'statement') statementWorkspace.open(config?.accountNumber, Boolean(session));
+  else if (session && section === 'incoming-transactions' && incomingPage) {
+    page = incomingPage;
+    render(page);
+    updateControls();
+  }
   else if (session) load();
 }
 
@@ -1154,7 +1154,7 @@ $('billing-filters-form').addEventListener('submit', applyBillingFilters);
 $('billing-filters-form').addEventListener('input', event => event.target.setCustomValidity(''));
 $('billing-filters-cancel').addEventListener('click', () => $('billing-filters-dialog').close());
 $('billing-filters-reset').addEventListener('click', () => setBillingFilters({}));
-function switchSection(button, filters) {
+function switchSection(button, filters, incomingPage) {
   if (!canChangeConnection()) return;
   closeSettings();
   if (button.dataset.section === section) {
@@ -1172,12 +1172,12 @@ function switchSection(button, filters) {
   if (filters) billingFilters[section] = filters;
   updateSection();
   for (const id of searchFields) $(id).value = '';
-  loadFirstPage();
+  loadFirstPage(incomingPage);
   if (filters) $('results-title').focus();
 }
 
-function navigateTo(name) {
-  switchSection(document.querySelector(`#app-navigation [data-section="${name}"]`));
+function navigateTo(name, incomingPage) {
+  switchSection(document.querySelector(`#app-navigation [data-section="${name}"]`), undefined, incomingPage);
   if (section !== name) return false;
   $('section-title').focus({ preventScroll: true });
   return true;
